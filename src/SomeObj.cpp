@@ -1,11 +1,14 @@
 #include "../include/SomeObj.h"
+#include "../include/Repository.h"
 
 SomeObj::SomeObj() {}
 
-// ---------------- Subtask 1：init / add / commit / rm ----------------
+// ---------------- Subtask 1: init / add / commit / rm ----------------
 
 void SomeObj::init() {
     // TODO: 创建 .gitlite 目录、initial commit 与 master 分支
+    Repository repo;
+    repo.init();
 }
 
 void SomeObj::add(const std::string&) {

@@ -1,13 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(gitlite LANGUAGES CXX)
 
-# TODO: 请在此处自行完成项目的编译配置。
-#
-# 要求：
-# 1. 在 build/ 中创建一个名称为 gitlite 的可执行目标；
-# 2. 将 main.cpp 和所有需要的实现文件加入该目标；
-# 3. 自行设置所需的 C++ 标准、头文件目录和编译选项。
-
 # 使用 C++17 标准 (支持 std::optional 等特性)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,17 +9,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # 编译警告与优化选项
 add_compile_options(-Wall -Wextra -O2)
 
-# 包含头文件目录 include/
-target_include_directories(${PROJECT_SOURCE_DIR}/include)
-
 # 自动收集 src/ 下的所有源文件以及根目录的 main.cpp
 file(GLOB SRC_FILES CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/src/*.cpp")
 
-# 生成可执行文件 gitlite (当使用 cmake -B build 时, 默认输出在 build/gitlite)
+# 1. 先创建可执行文件 gitlite
 add_executable(gitlite
     ${PROJECT_SOURCE_DIR}/main.cpp
     ${SRC_FILES}
 )
+
+# 2. 再为 gitlite 目标指定头文件目录
+target_include_directories(gitlite PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
 # 强制确保 gitlite 输出在当前构建目录 (即 ./build/gitlite)
 set_target_properties(gitlite PROPERTIES
