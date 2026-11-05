@@ -11,8 +11,10 @@ void SomeObj::init() {
     repo.init();
 }
 
-void SomeObj::add(const std::string&) {
+void SomeObj::add(const std::string& f) {
     // TODO: 将文件的当前内容加入暂存区
+    Repository repo;
+    repo.add(f);
 }
 
 void SomeObj::commit(const std::string&) {

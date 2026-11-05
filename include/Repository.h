@@ -1,6 +1,8 @@
 #ifndef REPOSITORY_H
 #define REPOSITORY_H
 
+#include "Commit.h"
+
 #include <string>
 
 // 建议类: 抽象仓库的持久化状态, 包括 HEAD、分支、标签、暂存区与对象库;
@@ -20,6 +22,18 @@ public:
 
     // 元数据目录名，即 ".gitlite"
     static std::string getGitliteDir();
+
+    // 获取当前分支名
+    std::string getCurrentBranch();
+
+    // 获取当前 HEAD 指向的 commit ID
+    std::string getCurrentCommitId();
+
+    // 获取当前 Commit 对象
+    Commit getCurrentCommit();
+
+    // add
+    void add(const std::string& filename);
 
     // 初始化仓库
     void init();
