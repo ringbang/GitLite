@@ -44,8 +44,24 @@ public:
     // log 
     void log();
 
+    // 解析 revision 的辅助函数
+    std::string resolveRevision(const std::string& rev);
+
     // 初始化仓库
     void init();
+
+    // tag
+    void listTags();
+
+    // tag [tag name]
+    void tag(const std::string& name);
+
+    // tag [tag name] [revision]
+    void tag(const std::string& name, const std::string& rev);
+
+private:
+    // 判断 tag 的名字是否合法的私有辅助函数
+    bool isValidName(const std::string& tag);
 };
 
 #endif // REPOSITORY_H

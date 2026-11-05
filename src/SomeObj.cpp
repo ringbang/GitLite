@@ -29,10 +29,12 @@ void SomeObj::rm(const std::string& f) {
     repo.rm(f);
 }
 
-// ---------------- Subtask 2：log / global-log / tag ----------------
+// ---------------- Subtask 2: log / global-log / tag ----------------
 
 void SomeObj::log() {
     // TODO: 从当前提交沿第一个父提交打印日志
+    Repository repo;
+    repo.log();
 }
 
 void SomeObj::globalLog() {
@@ -41,14 +43,20 @@ void SomeObj::globalLog() {
 
 void SomeObj::listTags() {
     // TODO: 按字典序打印所有标签及其目标提交 id
+    Repository repo;
+    repo.listTags();
 }
 
-void SomeObj::tag(const std::string&) {
+void SomeObj::tag(const std::string& n) {
     // TODO: 为当前提交创建轻量标签
+    Repository repo;
+    repo.tag(n);
 }
 
-void SomeObj::tag(const std::string&, const std::string&) {
+void SomeObj::tag(const std::string& n, const std::string& rev) {
     // TODO: 为指定提交或标签所指提交创建轻量标签
+    Repository repo;
+    repo.tag(n, rev);
 }
 
 // ---------------- Subtask 3：status / branch / rm-branch ----------------

@@ -142,16 +142,18 @@ Commit Commit::read(const std::string& fullPath) {
     return Commit(msg, time, pars, bl);
 }
 
-// log 的辅助函数 print
-void Commit::print() {
+// 输出用于打印的相关信息的辅助函数 info
+std::string Commit::info() {
+    std::ostringstream oss;
+
     // 前 2 行: === 和 commit + id
-    std::cout << "===" << '\n';
-    std::cout << "commit " << id << '\n';
+    oss << "===" << '\n';
+    oss << "commit " << id << '\n';
     
     // 可选的第 3 行: 合并产生的提交
     if (parents.size() == 2) {
-        std::cout << "Merge: " << parents[0].substr(0, 7) <<
-                  " " << parents[1].substr(0, 7) << '\n';
+        oss << "Merge: " << parents[0].substr(0, 7) <<
+            " " << parents[1].substr(0, 7) << '\n';
     }
 
     // 第 4 行: 转换 timestamp 为时间点
@@ -159,10 +161,12 @@ void Commit::print() {
     char time_buf[100];
     // %a (星期), %b (月份), %d (日), %H:%M:%S, %Y (年), %z (时区)
     std::strftime(time_buf, sizeof(time_buf), "%a %b %d %H:%M:%S %Y %z", tm);
-    std::cout << "Date: " << time_buf << '\n';
+    oss << "Date: " << time_buf << '\n';
 
     // 第 5 行: message
-    std::cout << message << "\n\n";
+    oss << message << "\n\n";
+
+    return oss.str();
 }
 
 // 访问器

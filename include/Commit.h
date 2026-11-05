@@ -31,8 +31,8 @@ public:
     const std::vector<std::string>& getParents() const;
     const std::map<std::string, std::string>& getBlobs() const;
 
-    // log 的辅助函数 print
-    void print();
+    // 输出用于打印的相关信息的辅助函数 info
+    std::string info();
 
 private:
     std::string message;

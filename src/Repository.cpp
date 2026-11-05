@@ -189,10 +189,10 @@ void Repository::log() {
     
     std::string curr_id = getCurrentCommitId();
     
-    // 只要 ID 不为空，就继续遍历
+    // 只要 ID 不为空, 就继续遍历
     while (!curr_id.empty()) {
         Commit curr_commit = Commit::read(Utils::join(COMMITS_DIR, curr_id));
-        curr_commit.print();
+        std::cout << curr_commit.info();
         
         // 获取父节点, 如果有, 更新 curr_id; 如果没有, 置空结束循环
         const auto& pars = curr_commit.getParents();
@@ -203,6 +203,101 @@ void Repository::log() {
         }
     }
 }
+
+// 解析 revision 的辅助函数
+std::string Repository::resolveRevision(const std::string& rev) {
+    // 优先把 revision 作为 tag 解析, 看是否有相应的文件
+    std::string tag_path = Utils::join(TAGS_DIR, rev);
+    if (Utils::isFile(tag_path)) {
+        std::string id = Utils::readContentsAsString(tag_path);
+        if (!id.empty() && id.back() == '\n') {
+            id.pop_back();
+        }
+        return id;
+    }
+
+    // 其次把 revision 作为 commit ID 解析, 看是否有相应的 ID
+    // (开头匹配也可)
+    auto commit_ids = Utils::plainFilenamesIn(COMMITS_DIR);
+    for (const auto& id: commit_ids) {
+        if (id.find(rev) == 0) {
+            return id;
+        }
+    }
+
+    // 如果没找到, 退出
+    Utils::exitWithMessage("No commit with that id exists.");
+    return "";
+}
+
+// 判断 tag 的名字是否合法的私有辅助函数
+bool Repository::isValidName(const std::string& tag) {
+    // 必须非空且以字母或数字开头
+    if (tag.empty() || !std::isalnum(tag[0])) {
+        return false;
+    }
+    // 不能含字母, 数字, _, . 和 - 以外的字符
+    for (char c: tag) {
+        if (!std::isalnum(c) && c != '_' && c != '.' && c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// tag
+void Repository::listTags() {
+    auto tags = Utils::plainFilenamesIn(TAGS_DIR);
+    // 先判断是否有 tag 存在, 若否则不输出任何内容
+    if (tags.empty()) {
+        return;
+    }
+
+    // 否则, 按 tag 字典序输出所有 tag 及其对应的 commit ID
+    for (const auto& tag: tags) {
+        std::string id = Utils::readContentsAsString(Utils::join(TAGS_DIR, tag));
+        if (!id.empty() && id.back() == '\n') {
+            id.pop_back();
+        }
+        std::cout << tag << ' ' << id << '\n';
+    }
+}
+
+// tag [tag name]
+void Repository::tag(const std::string& name) {
+    // 判断 tag name 是否合法, 不合法直接退出
+    if (!isValidName(name)) {
+        Utils::exitWithMessage("Incorrect operands.");
+    }
+
+    // 如果 tag 已经创建, 也退出
+    std::string tag_path = Utils::join(TAGS_DIR, name);
+    if (Utils::isFile(tag_path)) {
+        Utils::exitWithMessage("A tag with that name already exists.");
+    }
+
+    // 创建 tag, 加载当前头提交并创建指向 head ID 的 tag 文件
+    std::string head_id = getCurrentCommitId();
+    Utils::writeContents(tag_path, head_id);
+}
+
+// tag [tag name] [revision]
+void Repository::tag(const std::string& name, const std::string& rev) {
+    // 判断 tag name 是否合法, 不合法直接退出
+    if (!isValidName(name)) {
+        Utils::exitWithMessage("Incorrect operands.");
+    }
+
+    // 如果 tag 已经创建, 也退出
+    std::string tag_path = Utils::join(TAGS_DIR, name);
+    if (Utils::isFile(tag_path)) {
+        Utils::exitWithMessage("A tag with that name already exists.");
+    }
+
+    // 解析 rev 代表的 commit ID 并令 name 指向之
+    std::string id = resolveRevision(rev);
+    Utils::writeContents(tag_path, id);
+};
 
 // main.cpp 的 checkCWD 依赖此方法, 请保留
 std::string Repository::getGitliteDir() {
