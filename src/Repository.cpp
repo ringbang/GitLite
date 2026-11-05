@@ -6,6 +6,8 @@
 #include "../include/Blob.h"
 
 #include <ctime>
+#include <iostream>
+#include <clocale>
 
 // 定义标准路径
 const std::string Repository::GITLITE_DIR = ".gitlite";
@@ -178,6 +180,28 @@ void Repository::rm(const std::string& filename) {
 
     // 刷新状态
     staging.save(INDEX_FILE);
+}
+
+// log
+void Repository::log() {
+    // 强制输出英文月份和星期
+    std::setlocale(LC_TIME, "C");
+    
+    std::string curr_id = getCurrentCommitId();
+    
+    // 只要 ID 不为空，就继续遍历
+    while (!curr_id.empty()) {
+        Commit curr_commit = Commit::read(Utils::join(COMMITS_DIR, curr_id));
+        curr_commit.print();
+        
+        // 获取父节点, 如果有, 更新 curr_id; 如果没有, 置空结束循环
+        const auto& pars = curr_commit.getParents();
+        if (!pars.empty()) {
+            curr_id = pars[0];
+        } else {
+            curr_id = "";
+        }
+    }
 }
 
 // main.cpp 的 checkCWD 依赖此方法, 请保留

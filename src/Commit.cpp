@@ -3,6 +3,7 @@
 
 #include <stdexcept>
 #include <sstream>
+#include <iostream>
 
 // 建议类 Commit 的实现文件, 可按需使用或删除
 
@@ -139,6 +140,29 @@ Commit Commit::read(const std::string& fullPath) {
     }
 
     return Commit(msg, time, pars, bl);
+}
+
+// log 的辅助函数 print
+void Commit::print() {
+    // 前 2 行: === 和 commit + id
+    std::cout << "===" << '\n';
+    std::cout << "commit " << id << '\n';
+    
+    // 可选的第 3 行: 合并产生的提交
+    if (parents.size() == 2) {
+        std::cout << "Merge: " << parents[0].substr(0, 7) <<
+                  " " << parents[1].substr(0, 7) << '\n';
+    }
+
+    // 第 4 行: 转换 timestamp 为时间点
+    std::tm* tm = std::localtime(&timestamp);
+    char time_buf[100];
+    // %a (星期), %b (月份), %d (日), %H:%M:%S, %Y (年), %z (时区)
+    std::strftime(time_buf, sizeof(time_buf), "%a %b %d %H:%M:%S %Y %z", tm);
+    std::cout << "Date: " << time_buf << '\n';
+
+    // 第 5 行: message
+    std::cout << message << "\n\n";
 }
 
 // 访问器

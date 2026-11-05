@@ -31,6 +31,9 @@ public:
     const std::vector<std::string>& getParents() const;
     const std::map<std::string, std::string>& getBlobs() const;
 
+    // log 的辅助函数 print
+    void print();
+
 private:
     std::string message;
     std::time_t timestamp;

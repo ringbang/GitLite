@@ -41,6 +41,9 @@ public:
     // rm
     void rm(const std::string& filename);
 
+    // log 
+    void log();
+
     // 初始化仓库
     void init();
 };
