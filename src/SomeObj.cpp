@@ -17,8 +17,10 @@ void SomeObj::add(const std::string& f) {
     repo.add(f);
 }
 
-void SomeObj::commit(const std::string&) {
+void SomeObj::commit(const std::string& m) {
     // TODO: 将暂存区保存为新提交，并推进当前分支
+    Repository repo;
+    repo.commit(m);
 }
 
 void SomeObj::rm(const std::string&) {

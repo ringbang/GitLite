@@ -1,11 +1,11 @@
 samples/1-add-01.in:
-command/check: commit "unchanged add"
+command/check: absence of f.txt
 Expected:
-No changes added to the commit.
+file absent
 Actual:
-
+file present
 Diff:
 --- expected
 +++ actual
-@@ -1 +0,0 @@
--No changes added to the commit.
+@@ -1 +1 @@
+-file absent+file present

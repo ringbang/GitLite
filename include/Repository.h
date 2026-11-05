@@ -35,6 +35,9 @@ public:
     // add
     void add(const std::string& filename);
 
+    // commit
+    void commit(const std::string& message);
+
     // 初始化仓库
     void init();
 };

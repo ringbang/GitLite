@@ -5,6 +5,8 @@
 #include "../include/StagingArea.h"
 #include "../include/Blob.h"
 
+#include <ctime>
+
 // 定义标准路径
 const std::string Repository::GITLITE_DIR = ".gitlite";
 const std::string Repository::HEAD_FILE = ".gitlite/HEAD";
@@ -96,6 +98,52 @@ void Repository::add(const std::string& filename) {
     }
 
     // 保存暂存区状态
+    staging.save(INDEX_FILE);
+}
+
+// commit
+void Repository::commit(const std::string& message) {
+    // 前置失败检查: message 为空
+    if (message.empty()) {
+        Utils::exitWithMessage("Please enter a commit message.");
+    }
+
+    // 前置失败检查: 暂存区为空
+    StagingArea staging;
+    staging.load(INDEX_FILE);
+    if (staging.isEmpty()) {
+        Utils::exitWithMessage("No changes added to the commit.");
+    }
+
+    // 生成新快照: 获取当前提交作为父提交
+    Commit head = getCurrentCommit();
+    std::map<std::string, std::string> newBlobs = head.getBlobs();
+
+    // 生成新快照: 应用 added 修改
+    for (const auto& added_info: staging.getAddedMap()) {
+        newBlobs[added_info.first] = added_info.second;
+    }
+
+    // 生成新快照: 应用 removed 修改
+    for (const auto& removed_name: staging.getRemovedSet()) {
+        newBlobs.erase(removed_name);
+    }
+
+    // 构建新 Commit 对象
+    std::time_t now = std::time(nullptr);
+    std::vector<std::string> par = {head.getId()};
+    Commit newCommit(message, now, par, newBlobs);
+
+    // 保存新 Commit
+    newCommit.save(Utils::join(COMMITS_DIR, newCommit.getId()));
+
+    // 移动当前分支的指针, 即更新当前分支的最新提交
+    std::string branch = getCurrentBranch();
+    std::string branch_path = Utils::join(HEADS_DIR, branch);
+    Utils::writeContents(branch_path, newCommit.getId());
+
+    // 刷新状态
+    staging.clear();
     staging.save(INDEX_FILE);
 }
 
