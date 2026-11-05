@@ -147,6 +147,39 @@ void Repository::commit(const std::string& message) {
     staging.save(INDEX_FILE);
 }
 
+// rm
+void Repository::rm(const std::string& filename) {
+    // 加载当前的暂存区和提交跟踪, 判断文件是否暂存待添加, 是否被跟踪
+    StagingArea staging;
+    staging.load(INDEX_FILE);
+    Commit head = getCurrentCommit();
+    bool inAdded = (staging.isAdded(filename) > 0);
+    bool inHead = (head.getBlobs().count(filename) > 0);
+
+    // 情况 1: 文件既没有暂存待添加, 也没有被当前提交跟踪, 直接退出
+    if (!inAdded && !inHead) {
+        Utils::exitWithMessage("No reason to remove the file.");
+    }
+
+    // 情况 2: 文件已经暂存待添加但尚未被当前提交跟踪, rm 只取消暂存,
+    // 工作文件仍然保留
+    else if (inAdded && !inHead) {
+        staging.unstage(filename);
+    }
+
+    // 情况 3: 如果当前提交跟踪该文件, rm 将它标记为待删除, 
+    // 并在工作文件仍然存在时将其删除
+    else {
+        staging.removeFile(filename);
+        if (Utils::isFile(filename)) {
+            Utils::restrictedDelete(filename);
+        }
+    }
+
+    // 刷新状态
+    staging.save(INDEX_FILE);
+}
+
 // main.cpp 的 checkCWD 依赖此方法, 请保留
 std::string Repository::getGitliteDir() {
     return ".gitlite";

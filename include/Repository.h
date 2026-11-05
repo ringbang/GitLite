@@ -38,6 +38,9 @@ public:
     // commit
     void commit(const std::string& message);
 
+    // rm
+    void rm(const std::string& filename);
+
     // 初始化仓库
     void init();
 };

@@ -23,8 +23,10 @@ void SomeObj::commit(const std::string& m) {
     repo.commit(m);
 }
 
-void SomeObj::rm(const std::string&) {
-    // TODO: 将文件取消暂存，或标记为待删除
+void SomeObj::rm(const std::string& f) {
+    // TODO: 将文件取消暂存, 或标记为待删除
+    Repository repo;
+    repo.rm(f);
 }
 
 // ---------------- Subtask 2：log / global-log / tag ----------------
