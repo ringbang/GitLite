@@ -6,6 +6,15 @@
 
 // .gitliteignore 规则解析器与通配符匹配引擎
 class IgnoreMatcher {
+public:
+    IgnoreMatcher() = default;
+
+    // 在当前工作目录中, 若存在 .gitliteignore 文件, 则加载之
+    void LoadFromWorkingDirectory();
+ 
+    // 判断文件名是否匹配忽略规则 (仅做纯规则匹配, 调用方需先排除已跟踪 / 已暂存文件)
+    bool isIgnored(const std::string& filename) const;
+
 private:
     enum class TokenType {
         LITERAL,     // 字面量, ch 存储其值
@@ -26,16 +35,7 @@ private:
     std::vector<Rule> rules;  // 表示整个 .gitliteignore 的规则
     // 看某个文件名是否与单条特定规则匹配
     static bool matchTokens(const std::vector<Token>& pattern, const std::string& text);
-
-public:
-    IgnoreMatcher() = default;
-
-    // 在当前工作目录中, 若存在 .gitliteignore 文件, 则加载之
-    void LoadFromWorkingDirectory();
- 
-    // 判断文件名是否匹配忽略规则 (仅做纯规则匹配, 调用方需先排除已跟踪 / 已暂存文件)
-    bool isIgnored(const std::string& filename) const;
 };
 
 
-#endif  // IGNORE_MATCHER_H
+#endif // IGNORE_MATCHER_H
