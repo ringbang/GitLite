@@ -3,6 +3,7 @@
 
 #include <sstream>
 #include <string>
+#include <vector>
 
 // 在当前工作目录中, 若存在 .gitliteignore 文件, 则加载之
 void IgnoreMatcher::LoadFromWorkingDirectory() {
@@ -21,6 +22,11 @@ void IgnoreMatcher::LoadFromWorkingDirectory() {
 
     // 开始读取并解析文件内容作为忽略规则
     while (std::getline(iss, line)) {
+        // 去除 Windows 换行可能残留的 '\r', 但不裁剪空格
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+
         // 空行和以 # 开头的注释不产生效果
         if (line.empty() || line[0] == '#') {
             continue;
@@ -69,7 +75,7 @@ void IgnoreMatcher::LoadFromWorkingDirectory() {
     }
 }
 
-// 判断文件名是否符合某一条特定的忽略规则
+// 判断某一文件名是否符合某一条特定的忽略规则
 bool IgnoreMatcher::matchTokens(const std::vector<Token>& pat, const std::string& text) {
     // 二维布尔数组 dp[i][j] 表示模式 pat 的前 i 个 Token 
     // 能否完整匹配文件名 text 的前 j 个字符
@@ -113,7 +119,7 @@ bool IgnoreMatcher::matchTokens(const std::vector<Token>& pat, const std::string
 bool IgnoreMatcher::isIgnored(const std::string& filename) const {
     // 规范要求 “多条规则匹配同一文件时, 以文件中最后一条匹配规则为准”
     // 默认初始状态 ignored = false; 随后按行号从上到下遍历所有 rules,
-    // 只要某条规则匹配成功，就用该规则的语义覆盖 ignored (普通规则将其
+    // 只要某条规则匹配成功, 就用该规则的语义覆盖 ignored (普通规则将其
     // 设为 true, 带 ! 的反选规则 !rule.negated 将其重新设回 false). 
     // 循环结束时保留的值, 自然就是最后一条匹配规则的决定
     bool ignored = false;

@@ -17,10 +17,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_options(-Wall -Wextra -O2)
 
 # 包含头文件目录 include/
-include_directories(${PROJECT_SOURCE_DIR}/include)
+target_include_directories(${PROJECT_SOURCE_DIR}/include)
 
 # 自动收集 src/ 下的所有源文件以及根目录的 main.cpp
-file(GLOB SRC_FILES "${PROJECT_SOURCE_DIR}/src/*.cpp")
+file(GLOB SRC_FILES CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/src/*.cpp")
 
 # 生成可执行文件 gitlite (当使用 cmake -B build 时, 默认输出在 build/gitlite)
 add_executable(gitlite
