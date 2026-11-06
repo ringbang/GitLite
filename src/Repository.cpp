@@ -64,6 +64,14 @@ Commit Repository::getCurrentCommit() {
     return Commit::read(Utils::join(COMMITS_DIR, commit_id));
 }
 
+// 清理字符串最后可能带有的换行符
+std::string Repository::cleanString(std::string s) {
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
+        s.pop_back();
+    }
+    return s;
+}
+
 // add
 void Repository::add(const std::string& filename) {
     // 检查文件是否存在, 若不存在直接退出
@@ -373,11 +381,11 @@ void Repository::status() {
 
     // 将所有 branches 按规则输出 (自带字典序, 当前 branch 是特例)
     std::cout << "=== Branches ===" << '\n';
-    std::cout << '*' << curr_branch << '\n';
     for (const auto& b: branches) {
-        if (b != curr_branch) {
-            std::cout << b << '\n';
+        if (b == curr_branch) {
+            std::cout << "*";
         }
+        std::cout << b << '\n';
     }
     std::cout << '\n';
     branches.clear();
@@ -467,6 +475,47 @@ void Repository::status() {
             std::cout << fn << '\n';
         }
     }
+}
+
+// branch
+void Repository::branch(const std::string& name) {
+    // 先检查 name 是否合法, 不合法直接退出
+    if (!isValidName(name)) {
+        Utils::exitWithMessage("Incorrect operands.");
+    }
+
+    // 再检查是否存在同名 branch, 若存在也退出
+    std::string branch_path = Utils::join(HEADS_DIR, name);
+    if (Utils::isFile(branch_path)) {
+        Utils::exitWithMessage("A branch with that name already exists.");
+    }
+
+    // 可以创建新 branch
+    std::string head_id = cleanString(getCurrentCommitId());
+    Utils::writeContents(branch_path, head_id);
+};
+
+// rm-branch
+void Repository::rmBranch(const std::string& name) {
+    // 先检查 name 是否合法, 不合法直接退出
+    if (!isValidName(name)) {
+        Utils::exitWithMessage("Incorrect operands.");
+    }
+
+    // 再检查是否存在该分支, 若不存在直接退出
+    std::string branch_path = Utils::join(HEADS_DIR, name);
+    if (!Utils::isFile(branch_path)) {
+        Utils::exitWithMessage("A branch with that name does not exist.");
+    }
+
+    // 最后检查是否为当前分支, 若是直接退出
+    std::string curr_branch = cleanString(getCurrentBranch());
+    if (name == curr_branch) {
+        Utils::exitWithMessage("Cannot remove the current branch.");
+    }
+
+    // 可以删除该 branch
+    std::remove(branch_path.c_str());
 }
 
 // main.cpp 的 checkCWD 依赖此方法, 请保留

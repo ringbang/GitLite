@@ -20,17 +20,8 @@ public:
     static const std::string HEADS_DIR;
     static const std::string TAGS_DIR;
 
-    // 元数据目录名，即 ".gitlite"
+    // 元数据目录名, 即 ".gitlite"
     static std::string getGitliteDir();
-
-    // 获取当前分支名
-    std::string getCurrentBranch();
-
-    // 获取当前 HEAD 指向的 commit ID
-    std::string getCurrentCommitId();
-
-    // 获取当前 Commit 对象
-    Commit getCurrentCommit();
 
     // add
     void add(const std::string& filename);
@@ -65,9 +56,27 @@ public:
     // status
     void status();
 
+    // branch
+    void branch(const std::string& name);
+
+    // rm-branch
+    void rmBranch(const std::string& name);
+
 private:
     // 判断 tag 的名字是否合法的私有辅助函数
     bool isValidName(const std::string& tag);
+
+    // 获取当前分支名
+    std::string getCurrentBranch();
+
+    // 获取当前 HEAD 指向的 commit ID
+    std::string getCurrentCommitId();
+
+    // 获取当前 Commit 对象
+    Commit getCurrentCommit();
+
+    // 清理字符串最后可能带有的换行符
+    std::string cleanString(std::string s);
 };
 
 #endif // REPOSITORY_H

@@ -69,12 +69,16 @@ void SomeObj::status() {
     repo.status();
 }
 
-void SomeObj::branch(const std::string&) {
-    // TODO: 新建指向当前提交的分支，不切换
+void SomeObj::branch(const std::string& b) {
+    // TODO: 新建指向当前提交的分支, 不切换
+    Repository repo;
+    repo.branch(b);
 }
 
-void SomeObj::rmBranch(const std::string&) {
-    // TODO: 删除分支指针，不删除其提交
+void SomeObj::rmBranch(const std::string& b) {
+    // TODO: 删除分支指针, 不删除其提交
+    Repository repo;
+    repo.rmBranch(b);
 }
 
 // ---------------- Subtask 4：checkout / reset ----------------
