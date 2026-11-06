@@ -39,6 +39,8 @@ void SomeObj::log() {
 
 void SomeObj::globalLog() {
     // TODO: 从所有本地分支、远程跟踪分支和标签出发，输出全部可达提交并按规范排序
+    Repository repo;
+    repo.globalLog();
 }
 
 void SomeObj::listTags() {

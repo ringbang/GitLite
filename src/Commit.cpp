@@ -143,7 +143,7 @@ Commit Commit::read(const std::string& fullPath) {
 }
 
 // 输出用于打印的相关信息的辅助函数 info
-std::string Commit::info() {
+std::string Commit::info() const {
     std::ostringstream oss;
 
     // 前 2 行: === 和 commit + id

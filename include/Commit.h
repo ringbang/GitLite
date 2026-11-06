@@ -32,7 +32,7 @@ public:
     const std::map<std::string, std::string>& getBlobs() const;
 
     // 输出用于打印的相关信息的辅助函数 info
-    std::string info();
+    std::string info() const;
 
 private:
     std::string message;

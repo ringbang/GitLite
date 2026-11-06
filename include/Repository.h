@@ -59,6 +59,9 @@ public:
     // tag [tag name] [revision]
     void tag(const std::string& name, const std::string& rev);
 
+    // global-log
+    void globalLog();
+
 private:
     // 判断 tag 的名字是否合法的私有辅助函数
     bool isValidName(const std::string& tag);

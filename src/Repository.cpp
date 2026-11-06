@@ -8,6 +8,8 @@
 #include <ctime>
 #include <iostream>
 #include <clocale>
+#include <algorithm>
+#include <queue>
 
 // 定义标准路径
 const std::string Repository::GITLITE_DIR = ".gitlite";
@@ -298,6 +300,69 @@ void Repository::tag(const std::string& name, const std::string& rev) {
     std::string id = resolveRevision(rev);
     Utils::writeContents(tag_path, id);
 };
+
+// global-log
+void Repository::globalLog() {
+    // 1. 找到所有的起点提交, 包括每个 branch 和 tag
+    std::vector<std::string> start_ids;
+    auto branches = Utils::plainFilenamesIn(HEADS_DIR);
+    for (const auto& b: branches) {
+        std::string id = Utils::readContentsAsString(Utils::join(HEADS_DIR, b));
+        start_ids.push_back(id);
+    }
+
+    auto tags = Utils::plainFilenamesIn(TAGS_DIR);
+    for (const auto& t: tags) {
+        std::string id = Utils::readContentsAsString(Utils::join(TAGS_DIR, t));
+        start_ids.push_back(id);
+    }
+
+    // 2. 沿每个提交的所有父引用遍历 (BFS)
+    std::set<std::string> visited;  // 已经记录过的 commit
+    std::queue<std::string> q;
+
+    // 将每个起点提交去重后加入队列
+    for (const auto& id: start_ids) {
+        if (visited.find(id) == visited.end()) {
+            visited.insert(id);
+            q.push(id);
+        }
+    }
+
+    // 开始遍历, 记录所有 commit
+    std::vector<Commit> all_commits;
+    while (!q.empty()) {
+        std::string curr_id = q.front();
+        q.pop();
+
+        // 读取并保存该 commit
+        Commit commit = Commit::read(Utils::join(COMMITS_DIR, curr_id));
+        all_commits.push_back(commit);
+
+        // 把该 commit 的所有父提交去重并加入队列
+        for (const auto& par: commit.getParents()) {
+            if (visited.find(par) == visited.end()) {
+                visited.insert(par);
+                q.push(par);
+            }
+        }
+    }
+
+    // 3. 按照规则将所有 commit 排序并输出
+    std::sort(all_commits.begin(), all_commits.end(), [](const Commit& c, const Commit& d){
+        if (c.getTimestamp() != d.getTimestamp()) {
+            return (c.getTimestamp() > d.getTimestamp());
+        }
+        else {
+            return (c.getId() < d.getId());
+        }
+    });
+
+    // 4. 输出所有 commit 的信息
+    for (const auto& commit: all_commits) {
+        std::cout << commit.info();
+    }
+}
 
 // main.cpp 的 checkCWD 依赖此方法, 请保留
 std::string Repository::getGitliteDir() {
