@@ -62,6 +62,9 @@ public:
     // global-log
     void globalLog();
 
+    // status
+    void status();
+
 private:
     // 判断 tag 的名字是否合法的私有辅助函数
     bool isValidName(const std::string& tag);

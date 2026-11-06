@@ -10,6 +10,7 @@
 #include <clocale>
 #include <algorithm>
 #include <queue>
+#include <utility>
 
 // 定义标准路径
 const std::string Repository::GITLITE_DIR = ".gitlite";
@@ -349,7 +350,7 @@ void Repository::globalLog() {
     }
 
     // 3. 按照规则将所有 commit 排序并输出
-    std::sort(all_commits.begin(), all_commits.end(), [](const Commit& c, const Commit& d){
+    std::sort(all_commits.begin(), all_commits.end(), [](const Commit& c, const Commit& d) {
         if (c.getTimestamp() != d.getTimestamp()) {
             return (c.getTimestamp() > d.getTimestamp());
         }
@@ -361,6 +362,110 @@ void Repository::globalLog() {
     // 4. 输出所有 commit 的信息
     for (const auto& commit: all_commits) {
         std::cout << commit.info();
+    }
+}
+
+void Repository::status() {
+    // 1. Branches
+    // 加载当前已有的所有 branches 和目前活跃的 branch
+    auto branches = Utils::plainFilenamesIn(HEADS_DIR);
+    std::string curr_branch = Utils::readContentsAsString(HEAD_FILE);
+
+    // 将所有 branches 按规则输出 (自带字典序, 当前 branch 是特例)
+    std::cout << "=== Branches ===" << '\n';
+    std::cout << '*' << curr_branch << '\n';
+    for (const auto& b: branches) {
+        if (b != curr_branch) {
+            std::cout << b << '\n';
+        }
+    }
+    std::cout << '\n';
+    branches.clear();
+
+    // 2. Staged Files & Removed Files
+    // 加载当前暂存区, 按字典序排列后输出 added 和 removed
+    // std::map 和 std::set 自带字典序
+    StagingArea staging;
+    staging.load(INDEX_FILE);
+    auto added_map = staging.getAddedMap();
+    auto removed_set = staging.getRemovedSet();
+
+    std::cout << "=== Staged Files ===" << '\n';
+    for (const auto& [name, id]: added_map) {
+        std::cout << name << '\n';
+    }
+    std::cout << '\n' << "=== Removed Files ===" << '\n';;
+    for (const auto& name: removed_set) {
+        std::cout << name << '\n';
+    }
+    std::cout << '\n';
+
+    // 3. Modifications Not Staged For Commit
+    // 加载当前头提交, 初始化 std::map 用于存储文件名和修改状态, 自动去重
+    // 'M' -> Modified, 'D' -> Deleted
+    Commit head = getCurrentCommit();
+    const auto head_blobs = head.getBlobs();
+    std::map<std::string, char> stages;
+
+    // 读取暂存待添加文件, 比对期望状态 (e_id) 和实际状态 (是否存在, r_id)
+    for (const auto& [fn, e_id]: added_map) {
+        // (1) 工作区不存在且被暂存添加 -> deleted
+        if (!Utils::isFile(fn)) {
+            stages[fn] = 'D';
+            continue;
+        }
+        // (2) 工作区存在, 但实际状态与期望状态不符 -> modified
+        Blob actual(Utils::readContentsAsString(fn));
+        if (actual.getId() != e_id) {
+            stages[fn] = 'M';
+        }
+    }
+
+    // 读取提交追踪文件, 比对期望状态 (e_id) 和实际状态 (是否存在, r_id)
+    for (const auto& [fn, e_id]: head_blobs) {
+        // (1) 如果文件被暂存, 说明其已经被处理过了, 跳过
+        if (added_map.count(fn) || removed_set.count(fn)) {
+            continue;
+        }
+        // (2) 工作区不存在, 被头提交追踪且未暂存待删除 -> deleted
+        if (!Utils::isFile(fn)) {
+            stages[fn] = 'D';
+            continue;
+        }
+        // (3) 工作区存在, 但实际状态与期望状态不符 -> modified
+        Blob actual(Utils::readContentsAsString(fn));
+        if (actual.getId() != e_id) {
+            stages[fn] = 'M';
+        }
+    }
+
+    // 将文件名按照字典序排序后输出 (后缀不参与排序)
+    std::cout << "=== Modifications Not Staged For Commit ===" << '\n';
+    for (const auto& [name, stage]: stages) {
+        std::cout << name << ' ' << ((stage == 'M') ? "(modified)" : "(deleted)") << '\n';
+    }
+    std::cout << '\n';
+
+    // 4. Untracked Files
+    // 遍历工作区并筛选文件
+    IgnoreMatcher matcher;
+    matcher.LoadFromWorkingDirectory();
+    std::cout << "=== Untracked Files ===" << '\n';
+    for (const auto& fn: Utils::plainFilenamesIn(".")) {
+        // 过滤内部隐藏文件
+        if (fn == ".gitlite") {
+            continue;
+        }
+        // (1) 特例处理: 如果在 HEAD 里, 且被暂存删除了 (在 removed 里), 
+        // 但工作区又出现了, 则必须算作未跟踪
+        if (head_blobs.count(fn) > 0 && removed_set.count(fn) > 0) {
+            std::cout << fn << '\n';  // 自带字典序排序
+            continue;
+        }
+        // (2) 未被 HEAD 跟踪, 未被暂存, 未被忽略
+        if (!head_blobs.count(fn) && !staging.isAdded(fn) && !matcher.isIgnored(fn)) {
+            std::cout << fn << '\n';
+        }
     }
 }
 

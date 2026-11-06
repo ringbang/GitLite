@@ -61,10 +61,12 @@ void SomeObj::tag(const std::string& n, const std::string& rev) {
     repo.tag(n, rev);
 }
 
-// ---------------- Subtask 3：status / branch / rm-branch ----------------
+// ---------------- Subtask 3: status / branch / rm-branch ----------------
 
 void SomeObj::status() {
     // TODO: 显示分支、暂存区、未暂存修改与未跟踪文件
+    Repository repo;
+    repo.status();
 }
 
 void SomeObj::branch(const std::string&) {
