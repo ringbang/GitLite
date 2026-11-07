@@ -72,7 +72,48 @@ std::string Repository::cleanString(std::string s) {
     return s;
 }
 
-// add
+// 用于 checkout 和 reset 的把工作区和暂存区彻底变成目标提交的模样
+// 的私有辅助函数
+void Repository::checkoutSnapshot(const Commit& target) {
+    // 初始化
+    Commit head = getCurrentCommit();
+    IgnoreMatcher matcher;
+    matcher.LoadFromWorkingDirectory();
+    StagingArea staging;
+    staging.load(INDEX_FILE); 
+
+    // 1. 全局冲突预检
+    const auto& target_blobs = target.getBlobs();
+    for (const auto& [fn, id]: target_blobs) {
+        // 如果工作区有这个文件, 但它既不在当前 HEAD 中, 
+        // 也不在暂存区中, 且未被 ignore, 则不能覆写
+        if (Utils::isFile(fn) && !head.getBlobs().count(fn) &&
+            !staging.isAdded(fn) && !matcher.isIgnored(fn)) {
+                Utils::exitWithMessage("There is an untracked file in the way; delete it, or add and commit it first.");
+            }
+    }
+
+    // 2. 删除: 当前分支有, 但目标分支没有的文件
+    const auto& head_blobs = head.getBlobs();
+    for (const auto& [fn, id]: head_blobs) {
+        if (!target_blobs.count(fn) && Utils::isFile(fn)) {
+            std::remove(fn.c_str());
+        }
+    }
+
+    // 3. 覆盖 / 生成: 目标分支的所有文件
+    for (const auto& [fn, id]: target_blobs) {
+        // 利用 Blob 来覆写
+        Blob blob = Blob::read(Utils::join(BLOBS_DIR, id));
+        Utils::writeContents(fn, blob.getContent());
+    }
+
+    // 4. 操作成功后, 清理暂存区
+    staging.clear();
+    staging.save(INDEX_FILE);
+}
+
+// add [file name]
 void Repository::add(const std::string& filename) {
     // 检查文件是否存在, 若不存在直接退出
     if (!Utils::isFile(filename)) {
@@ -114,7 +155,7 @@ void Repository::add(const std::string& filename) {
     staging.save(INDEX_FILE);
 }
 
-// commit
+// commit [message]
 void Repository::commit(const std::string& message) {
     // 前置失败检查: message 为空
     if (message.empty()) {
@@ -160,7 +201,7 @@ void Repository::commit(const std::string& message) {
     staging.save(INDEX_FILE);
 }
 
-// rm
+// rm [file name]
 void Repository::rm(const std::string& filename) {
     // 加载当前的暂存区和提交跟踪, 判断文件是否暂存待添加, 是否被跟踪
     StagingArea staging;
@@ -373,6 +414,7 @@ void Repository::globalLog() {
     }
 }
 
+// status
 void Repository::status() {
     // 1. Branches
     // 加载当前已有的所有 branches 和目前活跃的 branch
@@ -477,7 +519,7 @@ void Repository::status() {
     }
 }
 
-// branch
+// branch [branch name]
 void Repository::branch(const std::string& name) {
     // 先检查 name 是否合法, 不合法直接退出
     if (!isValidName(name)) {
@@ -495,7 +537,7 @@ void Repository::branch(const std::string& name) {
     Utils::writeContents(branch_path, head_id);
 };
 
-// rm-branch
+// rm-branch [branch name]
 void Repository::rmBranch(const std::string& name) {
     // 先检查 name 是否合法, 不合法直接退出
     if (!isValidName(name)) {
@@ -516,6 +558,75 @@ void Repository::rmBranch(const std::string& name) {
 
     // 可以删除该 branch
     std::remove(branch_path.c_str());
+}
+
+// checkout -- [file name]
+void Repository::checkoutFile(const std::string name) {
+    // 加载当前提交并看指定文件是否被跟踪,
+    // 若未被跟踪, 则直接退出
+    Commit head = getCurrentCommit();
+    auto blobs = head.getBlobs();
+    if (!blobs.count(name)) {
+        Utils::exitWithMessage("File does not exist in that commit.");
+    }
+
+    // 否则覆写该文件
+    std::string id = blobs[name];
+    Blob blob = Blob::read(Utils::join(BLOBS_DIR, id));
+    Utils::writeContents(name, blob.getContent());
+}
+
+// checkout [revision] -- [file name]
+void Repository::checkoutFileInCommit(const std::string& rev, const std::string& fn) {
+    // 解析目标提交, 其余同 checkoutFile
+    std::string target_commit_id = resolveRevision(rev);
+    Commit target_commit = Commit::read(Utils::join(COMMITS_DIR, target_commit_id));
+    auto blobs = target_commit.getBlobs();
+    if (!blobs.count(fn)) {
+        Utils::exitWithMessage("File does not exist in that commit.");
+    }
+
+    std::string id = blobs[fn];
+    Blob blob = Blob::read(Utils::join(BLOBS_DIR, id));
+    Utils::writeContents(fn, blob.getContent());
+}
+
+// checkout [branch name]
+void Repository::checkoutBranch(const std::string& name) {
+    // 不存在同名分支
+    if (!isValidName(name)) {
+        Utils::exitWithMessage("No such branch exists.");
+    }
+    std::string branch_path = Utils::join(HEADS_DIR, name);
+    if (!Utils::isFile(branch_path)) {
+        Utils::exitWithMessage("No such branch exists.");
+    }
+
+    // 指定分支就是当前分支
+    if (name == cleanString(getCurrentBranch())) {
+        Utils::exitWithMessage("No need to checkout the current branch.");
+    }
+
+    // 加载目标分支并尝试覆写工作区
+    std::string target_id = cleanString(Utils::readContentsAsString(branch_path));
+    Commit target_commit = Commit::read(Utils::join(COMMITS_DIR, target_id));
+    checkoutSnapshot(target_commit);
+
+    // 如果成功, 修改 HEAD, 指向新分支
+    Utils::writeContents(HEAD_FILE, name);
+}
+
+// reset [revision]
+void Repository::reset(const std::string& rev) {
+    // 解析 revision 并执行快照覆盖
+    std::string target_id = resolveRevision(rev);
+    Commit target_commit = Commit::read(Utils::join(COMMITS_DIR, target_id));
+    checkoutSnapshot(target_commit);
+
+    // 移动当前分支指针
+    std::string branch = cleanString(getCurrentBranch());
+    std::string branch_path = Utils::join(HEADS_DIR, branch);
+    Utils::writeContents(branch_path, target_id);
 }
 
 // main.cpp 的 checkCWD 依赖此方法, 请保留

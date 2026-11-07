@@ -81,25 +81,33 @@ void SomeObj::rmBranch(const std::string& b) {
     repo.rmBranch(b);
 }
 
-// ---------------- Subtask 4：checkout / reset ----------------
+// ---------------- Subtask 4: checkout / reset ----------------
 
-void SomeObj::checkoutBranch(const std::string&) {
+void SomeObj::checkoutBranch(const std::string& b) {
     // TODO: 切换到指定分支
+    Repository repo;
+    repo.checkoutBranch(b);
 }
 
-void SomeObj::checkoutFile(const std::string&) {
+void SomeObj::checkoutFile(const std::string& f) {
     // TODO: 用当前提交中的版本覆盖工作目录中的文件
+    Repository repo;
+    repo.checkoutFile(f);
 }
 
-void SomeObj::checkoutFileInCommit(const std::string&, const std::string&) {
-    // TODO: 用指定 revision 的版本覆盖工作文件，支持标签与 id 缩写
+void SomeObj::checkoutFileInCommit(const std::string& rev, const std::string& f) {
+    // TODO: 用指定 revision 的版本覆盖工作文件, 支持标签与 id 缩写
+    Repository repo;
+    repo.checkoutFileInCommit(rev, f);
 }
 
-void SomeObj::reset(const std::string&) {
-    // TODO: 解析 revision，检出指定提交并移动当前分支头
+void SomeObj::reset(const std::string& rev) {
+    // TODO: 解析 revision, 检出指定提交并移动当前分支头
+    Repository repo;
+    repo.reset(rev);
 }
 
-// ---------------- Subtask 5：merge ----------------
+// ---------------- Subtask 5: merge ----------------
 
 void SomeObj::merge(const std::string&) {
     // TODO: 将指定分支合并到当前分支

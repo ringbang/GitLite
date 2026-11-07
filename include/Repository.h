@@ -23,13 +23,13 @@ public:
     // 元数据目录名, 即 ".gitlite"
     static std::string getGitliteDir();
 
-    // add
+    // add [file name]
     void add(const std::string& filename);
 
-    // commit
+    // commit [message]
     void commit(const std::string& message);
 
-    // rm
+    // rm [file name]
     void rm(const std::string& filename);
 
     // log 
@@ -56,11 +56,23 @@ public:
     // status
     void status();
 
-    // branch
+    // branch [branch name]
     void branch(const std::string& name);
 
-    // rm-branch
+    // rm-branch [branch name]
     void rmBranch(const std::string& name);
+
+    // checkout -- [file name]
+    void checkoutFile(const std::string name);
+
+    // checkout [revision] -- [file name]
+    void checkoutFileInCommit(const std::string& rev, const std::string& fn);
+
+    // checkout [branch name]
+    void checkoutBranch(const std::string& name); 
+
+    // reset [revision]
+    void reset(const std::string& rev);
 
 private:
     // 判断 tag 的名字是否合法的私有辅助函数
@@ -77,6 +89,10 @@ private:
 
     // 清理字符串最后可能带有的换行符
     std::string cleanString(std::string s);
+
+    // 用于 checkout 和 reset 的把工作区和暂存区彻底变成目标提交的模样
+    // 的私有辅助函数
+    void checkoutSnapshot(const Commit& target);
 };
 
 #endif // REPOSITORY_H
