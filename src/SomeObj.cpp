@@ -137,24 +137,34 @@ void SomeObj::pull(const std::string&, const std::string&) {
     // TODO: fetch 后将取回的分支合并到当前分支
 }
 
-// ---------------- Bonus-2：diff / show ----------------
+// ---------------- Bonus-2: diff / show ----------------
 
 void SomeObj::diff() {
-    // TODO: 比较当前提交与工作目录并输出差异，无差异时不输出
+    // TODO: 比较当前提交与工作目录并输出差异, 无差异时不输出
+    Repository repo;
+    repo.diff();
 }
 
-void SomeObj::diffWithCommit(const std::string&) {
-    // TODO: 解析 revision，比较指定提交与工作目录，无差异时不输出
+void SomeObj::diffWithCommit(const std::string& rev) {
+    // TODO: 解析 revision, 比较指定提交与工作目录, 无差异时不输出
+    Repository repo;
+    repo.diffWithCommit(rev);
 }
 
-void SomeObj::diffBetween(const std::string&, const std::string&) {
-    // TODO: 解析两个 revision 并比较对应提交，无差异时不输出
+void SomeObj::diffBetween(const std::string& rev1, const std::string& rev2) {
+    // TODO: 解析两个 revision 并比较对应提交, 无差异时不输出
+    Repository repo;
+    repo.diffBetween(rev1, rev2);
 }
 
 void SomeObj::show() {
     // TODO: 显示当前提交及其相对第一父提交的差异
+    Repository repo;
+    repo.show();
 }
 
-void SomeObj::show(const std::string&) {
+void SomeObj::show(const std::string& rev) {
     // TODO: 显示指定提交或标签及其相对第一父提交的差异
+    Repository repo;
+    repo.show(rev);
 }

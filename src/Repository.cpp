@@ -4,6 +4,7 @@
 #include "../include/IgnoreMatcher.h"
 #include "../include/StagingArea.h"
 #include "../include/Blob.h"
+#include "../include/DiffEngine.h"
 
 #include <ctime>
 #include <iostream>
@@ -12,6 +13,7 @@
 #include <queue>
 #include <utility>
 #include <set>
+#include <optional>
 
 // 定义标准路径
 const std::string Repository::GITLITE_DIR = ".gitlite";
@@ -884,6 +886,169 @@ void Repository::merge(const std::string& branch) {
     // 7. 输出冲突提示
     if (!conflicts.empty()) {
         std::cout << "Encountered a merge conflict." << '\n';
+    }
+}
+
+// 用于 diff 和 show 的从 Commit 读取文件内容的私有辅助函数
+std::optional<std::string> Repository::readFileFromCommit(const Commit& commit, 
+                                                          const std::string& filename) {
+    if (!commit.getBlobs().count(filename)) {
+        return std::nullopt;
+    }
+    std::string id = commit.getBlobs().at(filename);
+    return Blob::read(Utils::join(BLOBS_DIR, id)).getContent();
+}
+
+// diff
+void Repository::diff() {
+    // 获取当前头提交, 读取其 Blobs, 对每个文件名构建 content
+    Commit head = getCurrentCommit();
+    for (const auto& [fn, id]: head.getBlobs()) {
+        std::optional<std::string> head_content, actual_content;
+        Blob blob = Blob::read(Utils::join(BLOBS_DIR, id));
+        head_content = blob.getContent();
+
+        // content 不为空选项, 当且仅当工作区有文件 fn
+        if (Utils::isFile(fn)) {
+            actual_content = Utils::readContentsAsString(fn);
+        }
+        else {
+            actual_content = std::nullopt;
+        }
+
+        // 输出编辑信息
+        std::cout << DiffEngine::generateDiff(head_content, actual_content, fn);
+    }
+}
+
+// diff [revision]
+void Repository::diffWithCommit(const std::string& rev) {
+    // 获取目标提交, 读取其 Blobs, 对每个文件名构建 content
+    std::string head_id = resolveRevision(rev);
+    Commit head = Commit::read(Utils::join(COMMITS_DIR, head_id));
+    for (const auto& [fn, id]: head.getBlobs()) {
+        std::optional<std::string> head_content, actual_content;
+        Blob blob = Blob::read(Utils::join(BLOBS_DIR, id));
+        head_content = blob.getContent();
+
+        // content 不为空选项, 当且仅当工作区有文件 fn
+        if (Utils::isFile(fn)) {
+            actual_content = Utils::readContentsAsString(fn);
+        }
+        else {
+            actual_content = std::nullopt;
+        }
+
+        // 输出编辑信息
+        std::cout << DiffEngine::generateDiff(head_content, actual_content, fn);
+    }
+}
+
+// diff [revision1] [revision2]
+void Repository::diffBetween(const std::string& rev1, const std::string& rev2) {
+    // 获取 2 个 revision 指向的提交
+    std::string old_commit_id = resolveRevision(rev1);
+    Commit old_commit = Commit::read(Utils::join(COMMITS_DIR, old_commit_id));
+    std::string new_commit_id = resolveRevision(rev2);
+    Commit new_commit = Commit::read(Utils::join(COMMITS_DIR, new_commit_id));
+
+    // 构建二者跟踪文件的并集
+    std::set<std::string> all_filenames;
+    for (const auto& [fn, id]: old_commit.getBlobs()) {
+        all_filenames.insert(fn);
+    }
+    for (const auto& [fn, id]: new_commit.getBlobs()) {
+        all_filenames.insert(fn);
+    }
+
+    // 对每个文件名, 构建其对应的 content 并输出比较信息
+    for (const std::string& fn: all_filenames) {
+        std::optional<std::string> old_content, new_content;
+        // 如果该文件被旧提交跟踪, 那么 old_content 不为空选项,
+        // 读取相应的 Blob; 否则, old_content 为空选项
+        // 新提交同理
+        old_content = readFileFromCommit(old_commit, fn);
+        new_content = readFileFromCommit(new_commit, fn);
+
+        // 输出编辑信息
+        std::cout << DiffEngine::generateDiff(old_content, new_content, fn);
+    }
+}
+
+// show
+void Repository::show() {
+    // 获取当前头提交并打印 info
+    Commit head = getCurrentCommit();
+    std::cout << head.info();
+
+    // 初始提交不与父提交比较
+    if (head.getParents().empty()) {
+        return;
+    }
+
+    // 否则获取父提交并构建二者跟踪文件的并集
+    std::set<std::string> all_filenames;
+    const auto& parent_id = head.getParents()[0];
+    Commit parent = Commit::read(Utils::join(COMMITS_DIR, parent_id));
+    const auto& head_blobs = head.getBlobs();
+    const auto& parent_blobs = parent.getBlobs();
+    for (const auto& [fn, id]: head_blobs) {
+        all_filenames.insert(fn);
+    }
+    for (const auto& [fn, id]: parent_blobs) {
+        all_filenames.insert(fn);
+    }
+
+    // 对每个文件名, 构建其对应的 content 并输出比较信息
+    for (const std::string& fn: all_filenames) {
+        std::optional<std::string> head_content, parent_content;
+        // 如果该文件被当前头提交跟踪, 那么 head_content 不为空选项,
+        // 读取相应的 Blob; 否则, head_content 为空选项
+        // 父提交同理
+        head_content = readFileFromCommit(head, fn);
+        parent_content = readFileFromCommit(parent, fn);
+
+        // 输出编辑信息
+        std::cout << DiffEngine::generateDiff(parent_content, head_content, fn);
+    }
+}
+
+// show [revision]
+void Repository::show(const std::string& rev) {
+    // 获取当前 revision 指向的提交并打印 info
+    std::string head_id = resolveRevision(rev);
+    Commit head = Commit::read(Utils::join(COMMITS_DIR, head_id));
+    std::cout << head.info();
+
+    // 初始提交不与父提交比较
+    if (head.getParents().empty()) {
+        return;
+    }
+
+    // 否则获取父提交并构建二者跟踪文件的并集
+    std::set<std::string> all_filenames;
+    const auto& parent_id = head.getParents()[0];
+    Commit parent = Commit::read(Utils::join(COMMITS_DIR, parent_id));
+    const auto& head_blobs = head.getBlobs();
+    const auto& parent_blobs = parent.getBlobs();
+    for (const auto& [fn, id]: head_blobs) {
+        all_filenames.insert(fn);
+    }
+    for (const auto& [fn, id]: parent_blobs) {
+        all_filenames.insert(fn);
+    }
+
+    // 对每个文件名, 构建其对应的 content 并输出比较信息
+    for (const std::string& fn: all_filenames) {
+        std::optional<std::string> head_content, parent_content;
+        // 如果该文件被当前头提交跟踪, 那么 head_content 不为空选项,
+        // 读取相应的 Blob; 否则, head_content 为空选项
+        // 父提交同理
+        head_content = readFileFromCommit(head, fn);
+        parent_content = readFileFromCommit(parent, fn);
+
+        // 输出编辑信息
+        std::cout << DiffEngine::generateDiff(parent_content, head_content, fn);
     }
 }
 

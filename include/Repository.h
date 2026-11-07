@@ -5,6 +5,7 @@
 
 #include <string>
 #include <set>
+#include <optional>
 
 // 建议类: 抽象仓库的持久化状态, 包括 HEAD、分支、标签、暂存区与对象库;
 // 可自由扩充或重新设计
@@ -78,6 +79,21 @@ public:
     // merge [branch name]
     void merge(const std::string& branch);
 
+    // diff
+    void diff();      
+    
+    // diff [revision]
+    void diffWithCommit(const std::string& rev);
+    
+    // diff [revision1] [revision2]
+    void diffBetween(const std::string& rev1, const std::string& rev2);
+
+    // show
+    void show();
+
+    // show [revision]
+    void show(const std::string& rev);
+
 private:
     // 判断 tag 的名字是否合法的私有辅助函数
     bool isValidName(const std::string& tag);
@@ -100,6 +116,9 @@ private:
 
     // 用于 merge 的收集某提交的所有父提交的私有辅助函数
     std::set<std::string> getAncestors(const std::string& start_id);
+
+    // 用于 diff 和 show 的从 Commit 读取文件内容的私有辅助函数
+    std::optional<std::string> readFileFromCommit(const Commit& commit, const std::string& filename);
 };
 
 #endif // REPOSITORY_H
