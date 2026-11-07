@@ -8,7 +8,7 @@
 - **`Repository`（`Repository.h` / `Repository.cpp`）**
   - **职责**：仓库顶层控制器，负责校验工作目录状态、管理 `.gitlite` 路径结构及调度所有 Gitlite 命令逻辑。
   - **静态变量**：定义 `.gitlite` 根目录、`HEAD`、`index`、`commits/`、`blobs/`、`refs/heads/` 和 `refs/tags/` 的标准路径常量。
-  - **辅助接口**：包含 `getCurrentBranch()`、`getCurrentCommitId()` 用于解析当前 `HEAD` 状态；包含 `resolveRevision()` 统一处理标签名与 Commit ID 前缀的解析。
+  - **辅助接口**：包含 `getCurrentBranch()`、`getCurrentCommitId()` 用于解析当前 `HEAD` 状态；包含 `resolveRevision()` 统一处理标签名与 Commit ID 前缀的解析；包含 `checkoutSnapshot()` 用于复用快照同步逻辑。
 - **`Commit`（`Commit.h` / `Commit.cpp`）**
   - **职责**：抽象单次提交的元数据与文件快照，提供日志格式化与对象持久化接口。
   - **实例变量**：`std::string message`（提交信息）、`std::time_t timestamp`（Unix 时间戳）、`std::vector<std::string> parents`（父提交 ID 列表，支持 0 至 2 个父提交）、`std::map<std::string, std::string> blobs`（文件名到 Blob SHA-1 的有序映射）及 `std::string id`（当前提交的 40 位 SHA-1 哈希值）。
@@ -72,15 +72,21 @@
 
 - **代码复用**：统一服务于 `checkout [branch]`、`reset [revision]` 以及 `merge` 的快进（Fast-Forward）模式。
 - **冲突预检**：在修改任何工作文件前，先遍历目标提交跟踪的所有文件；若某文件在工作区中存在、未被当前提交跟踪、未在暂存区待添加且未被 `.gitliteignore` 忽略，则立即报错 `There is an untracked file in the way...` 并终止，保证失败操作的原子性。
+- **同步流程**：先删除当前提交有而目标提交没有的文件，再将目标提交包含的文件内容由 Blob 对象库中读出并覆写至工作区，最后清空暂存区并落盘。
 
-### 2.9 分支合并（`merge`）与分割点查找
+### 2.9 版本检出与重置（`checkout` 与 `reset`）
+- **文件级检出（`checkout -- [file]` / `checkout [revision] -- [file]`）**：仅从当前或目标提交中读取特定文件的 Blob 并覆写工作区，不修改分支指针、HEAD 或暂存区。
+- **分支切换（`checkout [branch]`）**：验证分支存在且非当前分支后，调用 `checkoutSnapshot` 同步工作区与暂存区，成功后将新的分支名写入 `HEAD`。
+- **版本重置（`reset [revision]`）**：解析目标提交后，调用 `checkoutSnapshot` 同步工作区，但不切换分支，而是将当前分支所指向的文件引用（`refs/heads/...`）覆写为目标提交 ID。
+
+### 2.10 分支合并（`merge`）与分割点查找
 
 - **分割点（Split Point）算法**：先从当前分支头提交出发，沿所有父引用遍历收集全部祖先集合（含自身）；随后从给定分支头提交出发执行广度优先搜索（BFS，按父引用存储顺序入队），首个命中当前分支祖先集合的提交即为分割点。
 - **特殊历史处理**：若分割点为给定分支头，输出 `Given branch is an ancestor of the current branch.` 直接结束；若分割点为当前分支头，则调用 `checkoutSnapshot` 执行快进合并并移动当前分支指针。
 - **普通合并与冲突处理**：遍历分割点、当前分支、给定分支的文件名并集，严格只对本次合并实际需要写入或删除的路径执行未跟踪文件冲突预检和文件更新，保留无关工作区修改。
 - **冲突文件生成**：当同一路径在两分支中发生不同修改时，将缺失侧视为空内容，若非空内容末尾缺少 `\n` 则补齐换行符，按 `<<<<<<< HEAD`、`=======`、`>>>>>>>` 格式拼接写入工作区并自动暂存，最后生成包含两个父引用的合并提交并打印 `Encountered a merge conflict.`。
 
-### 2.10 `diff` 与 `show` 的 LCS 差异算法（`DiffEngine`）
+### 2.11 `diff` 与 `show` 的 LCS 差异算法（`DiffEngine`）
 
 - **比较集合确定**：与工作区比较时仅遍历旧提交跟踪的文件（忽略工作区未跟踪文件）；两个提交之间比较（及 `show` 比较父子提交）时遍历两侧跟踪文件名的并集并按字典序输出。
 - **原始字节切分与换行检测**：仅将 `\n` 视为行分隔符，保留 Windows 风格的 `\r` 字符，并单独记录文件末尾字节是否为 `\n` 以决定是否追加 `\ No newline at end of file`。
