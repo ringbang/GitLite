@@ -4,6 +4,7 @@
 #include "Commit.h"
 
 #include <string>
+#include <set>
 
 // 建议类: 抽象仓库的持久化状态, 包括 HEAD、分支、标签、暂存区与对象库;
 // 可自由扩充或重新设计
@@ -74,6 +75,9 @@ public:
     // reset [revision]
     void reset(const std::string& rev);
 
+    // merge [branch name]
+    void merge(const std::string& branch);
+
 private:
     // 判断 tag 的名字是否合法的私有辅助函数
     bool isValidName(const std::string& tag);
@@ -93,6 +97,9 @@ private:
     // 用于 checkout 和 reset 的把工作区和暂存区彻底变成目标提交的模样
     // 的私有辅助函数
     void checkoutSnapshot(const Commit& target);
+
+    // 用于 merge 的收集某提交的所有父提交的私有辅助函数
+    std::set<std::string> getAncestors(const std::string& start_id);
 };
 
 #endif // REPOSITORY_H

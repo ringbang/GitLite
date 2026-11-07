@@ -109,11 +109,13 @@ void SomeObj::reset(const std::string& rev) {
 
 // ---------------- Subtask 5: merge ----------------
 
-void SomeObj::merge(const std::string&) {
+void SomeObj::merge(const std::string& b) {
     // TODO: 将指定分支合并到当前分支
+    Repository repo;
+    repo.merge(b);
 }
 
-// ---------------- Bonus-1：add-remote / rm-remote / push / fetch / pull ----------------
+// ---------------- Bonus-1: add-remote / rm-remote / push / fetch / pull ----------------
 
 void SomeObj::addRemote(const std::string&, const std::string&) {
     // TODO: 保存远程仓库地址

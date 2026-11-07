@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <queue>
 #include <utility>
+#include <set>
 
 // 定义标准路径
 const std::string Repository::GITLITE_DIR = ".gitlite";
@@ -111,6 +112,26 @@ void Repository::checkoutSnapshot(const Commit& target) {
     // 4. 操作成功后, 清理暂存区
     staging.clear();
     staging.save(INDEX_FILE);
+}
+
+// 用于 merge 的收集某提交的所有父提交的私有辅助函数
+std::set<std::string> Repository::getAncestors(const std::string& start_id) {
+    std::set<std::string> visited;
+    std::queue<std::string> q;
+    q.push(start_id);
+    visited.insert(start_id);
+    while (!q.empty()) {
+        auto curr = q.front(); 
+        q.pop();
+        Commit c = Commit::read(Utils::join(COMMITS_DIR, curr));
+        for (const auto& p : c.getParents()) {
+            if (!visited.count(p)) {
+                visited.insert(p);
+                q.push(p);
+            }
+        }
+    }
+    return visited;
 }
 
 // add [file name]
@@ -627,6 +648,243 @@ void Repository::reset(const std::string& rev) {
     std::string branch = cleanString(getCurrentBranch());
     std::string branch_path = Utils::join(HEADS_DIR, branch);
     Utils::writeContents(branch_path, target_id);
+}
+
+// merge [branch name]
+void Repository::merge(const std::string& branch) {
+    // 1. 前置失败检查
+    // (1) 暂存区有未提交的修改
+    StagingArea staging;
+    staging.load(INDEX_FILE);
+    if (!staging.isEmpty()) {
+        Utils::exitWithMessage("You have uncommitted changes.");
+    }
+
+    // (2) 不存在名为给定名称的分支
+    std::string branch_path = Utils::join(HEADS_DIR, branch);
+    if (!isValidName(branch) || !Utils::isFile(branch_path)) {
+        Utils::exitWithMessage("A branch with that name does not exist.");
+    }
+
+    // (3) 不能将分支与自身合并
+    if (branch == cleanString(getCurrentBranch())) {
+        Utils::exitWithMessage("Cannot merge a branch with itself.");
+    }
+
+    // 2. BFS 搜索最近分割点
+    // 利用辅助函数 getAncestors()
+    std::string head_id = getCurrentCommitId();
+    const auto& head_ancestors = getAncestors(head_id);
+    std::string branch_id = cleanString(Utils::readContentsAsString(branch_path));
+    std::string split_id = "";
+
+    // 原理与 getAncestors() 相同, 但多出一步当前 id 是否在 head_ancestors 中的检测
+    std::set<std::string> visited;
+    std::queue<std::string> q;
+    q.push(branch_id);
+    visited.insert(branch_id);
+    while (!q.empty()) {
+        auto curr = q.front();
+        q.pop();
+        if (head_ancestors.count(curr)) {
+            split_id = curr;
+            break;
+        }
+        Commit c = Commit::read(Utils::join(COMMITS_DIR, curr));
+        for (const auto& p : c.getParents()) {
+            if (!visited.count(p)) {
+                visited.insert(p);
+                q.push(p);
+            }
+        }
+    }
+
+    // 理论上 split_id 不可能为空, 但以防万一进行防御
+    if (split_id.empty()) {
+        Utils::exitWithMessage("No common ancestor found.");
+    }
+
+    // 3. 特殊关系处理
+    // (1) 给定分支是当前分支的祖先
+    if (split_id == branch_id) {
+        Utils::exitWithMessage("Given branch is an ancestor of the current branch.");
+    }
+
+    // (2) 当前分支是给定分支的祖先, 执行快进
+    if (split_id == head_id) {
+        Commit target_commit = Commit::read(Utils::join(COMMITS_DIR, branch_id));
+        checkoutSnapshot(target_commit);
+
+        // 移动当前分支指针并输出相关信息
+        std::string curr_branch = cleanString(getCurrentBranch());
+        Utils::writeContents(Utils::join(HEADS_DIR, curr_branch), branch_id);
+        std::cout << "Current branch fast-forwarded." << '\n';
+        return;
+    }
+
+    // 4. 计算普通合并结果
+    // (1) 预备工作: 加载 3 方 Commit 对象, 获取其追踪的文件名并集,
+    // 为合并设立 3 个区: 待覆写的 to_write, 待删除的 to_remove 和
+    // 有冲突的 conflicts 
+    Commit base_commit = Commit::read(Utils::join(COMMITS_DIR, split_id));
+    Commit ours_commit = Commit::read(Utils::join(COMMITS_DIR, head_id));
+    Commit theirs_commit = Commit::read(Utils::join(COMMITS_DIR, branch_id));
+    std::set<std::string> all_filenames;
+    std::map<std::string, std::string> to_write;
+    std::vector<std::string> to_remove, conflicts;
+    for (const auto& [fn, id]: base_commit.getBlobs()) {
+        all_filenames.insert(fn);
+    }
+    for (const auto& [fn, id]: ours_commit.getBlobs()) {
+        all_filenames.insert(fn);
+    }
+    for (const auto& [fn, id]: theirs_commit.getBlobs()) {
+        all_filenames.insert(fn);
+    }
+    
+    // (2) 根据文件合并规则, 决定是否为文件分区, 以及分到哪里
+    for (const auto& fn: all_filenames) {
+        // 求出每个文件名在 3 个 Commit 对应的 ID 分别是什么, 找不到的话置空
+        std::string base_id = (base_commit.getBlobs().count(fn)) ? base_commit.getBlobs().at(fn) : "";
+        std::string ours_id = (ours_commit.getBlobs().count(fn)) ? ours_commit.getBlobs().at(fn) : "";
+        std::string theirs_id = (theirs_commit.getBlobs().count(fn)) ? theirs_commit.getBlobs().at(fn) : "";
+
+        if (base_id.empty() && theirs_id.empty() && !ours_id.empty()) {
+            // 规则 4: 保持原样
+            continue;
+        }
+
+        if (ours_id == theirs_id) {
+            // 规则 3: 双方一致 (都没改, 或者都改成了同样的, 或者都没了), 保持原样
+            continue; 
+        }
+
+        if (ours_id == base_id) {
+            // 当前没改 (或者当前没有), 但给定分支改了 (或者给定分支新建了)
+            // 对应规则 1, 5 和 6
+            if (theirs_id.empty()) {
+                // 规则 6: 给定分支删了 fn
+                to_remove.push_back(fn);
+            }
+            else {
+                // 规则 1, 5: 给定分支改了或新建了 fn
+                to_write[fn] = theirs_id;
+            }
+            continue;
+        }
+
+        if (theirs_id == base_id) {
+            // 给定分支没改 fn (或者给定没有), 但当前分支改了 (或者当前分支新建了)
+            // 规则 2, 7: 保持原样
+            continue;
+        }
+
+        // 双方都改了且不一样, 或者一边改了一边删了, 或者双方新建了但不一样
+        // 规则 8: 冲突
+        conflicts.push_back(fn);
+    }
+
+    // (3) 未跟踪文件预检
+    // 只针对 to_write, to_remove 和 conflicts 里的文件进行检查
+    IgnoreMatcher matcher;
+    matcher.LoadFromWorkingDirectory();
+
+    // 把所有会修改的文件放到一个 set 里方便统一检查
+    std::set<std::string> paths_to_check;
+    for (const auto& [fn, id] : to_write) {
+        paths_to_check.insert(fn);
+    }
+    for (const auto& fn : to_remove) {
+        paths_to_check.insert(fn);
+    }
+    for (const auto& fn : conflicts) {
+        paths_to_check.insert(fn);
+    }
+
+    for (const auto& fn : paths_to_check) {
+        // 如果工作区有这个文件, 且它未被当前提交追踪、未暂存添加、未被 ignore, 
+        // 则直接退出
+        if (Utils::isFile(fn) && !ours_commit.getBlobs().count(fn) 
+            && !staging.isAdded(fn) && !matcher.isIgnored(fn)) {
+            Utils::exitWithMessage("There is an untracked file in the way; delete it, or add and commit it first.");
+        }
+    }
+
+    // 5. 执行普通合并: 修改工作区与暂存区
+    // (1) 删除
+    for (const auto& fn: to_remove) {
+        if (Utils::isFile(fn)) {
+            std::remove(fn.c_str());
+        }
+        staging.removeFile(fn);
+    }
+
+    // (2) 写入
+    for (const auto& [fn, id]: to_write) {
+        Blob blob = Blob::read(Utils::join(BLOBS_DIR, id));
+        Utils::writeContents(fn, blob.getContent());
+        staging.addFile(fn, id);
+    }
+
+    // (3) 冲突处理
+    for (const auto& fn: conflicts) {
+        // 读取 fn 在双方 Commit 的内容
+        std::string ours_content = "", theirs_content = "", conflict_content = "";
+        if (ours_commit.getBlobs().count(fn)) {
+            Blob blob = Blob::read(Utils::join(BLOBS_DIR, ours_commit.getBlobs().at(fn)));
+            ours_content = blob.getContent();
+            if (!ours_content.empty() && ours_content.back() != '\n') {
+                ours_content.push_back('\n');
+            }
+        }
+        if (theirs_commit.getBlobs().count(fn)) {
+            Blob blob = Blob::read(Utils::join(BLOBS_DIR, theirs_commit.getBlobs().at(fn)));
+            theirs_content = blob.getContent();
+            if (!theirs_content.empty() && theirs_content.back() != '\n') {
+                theirs_content.push_back('\n');
+            }
+        }
+
+        // 按给定格式拼接
+        conflict_content = "<<<<<<< HEAD\n" + ours_content + 
+                           "=======\n" + theirs_content + ">>>>>>>\n";
+
+        // 将新文件写入工作区并暂存
+        Blob blob(conflict_content);
+        blob.save(Utils::join(BLOBS_DIR, blob.getId()));
+        Utils::writeContents(fn, conflict_content);
+        staging.addFile(fn, blob.getId());
+    }
+
+    // 保存暂存区
+    staging.save(INDEX_FILE);
+
+    // 6. 生成合并提交
+    std::map<std::string, std::string> new_blobs = ours_commit.getBlobs();
+    for (const auto& [fn, id]: staging.getAddedMap()) {
+        new_blobs[fn] = id;
+    }
+    for (const auto& fn: staging.getRemovedSet()) {
+        new_blobs.erase(fn);
+    }
+
+    std::time_t now = std::time(nullptr);
+    std::vector<std::string> pars = {head_id, branch_id};
+    std::string msg = "Merged " + branch + " into " + cleanString(getCurrentBranch()) + ".";
+    Commit merge_commit(msg, now, pars, new_blobs);
+    merge_commit.save(Utils::join(COMMITS_DIR, merge_commit.getId()));
+
+    // 移动当前分支的指针
+    Utils::writeContents(Utils::join(HEADS_DIR, cleanString(getCurrentBranch())), merge_commit.getId());
+
+    // 清空暂存区
+    staging.clear();
+    staging.save(INDEX_FILE);
+
+    // 7. 输出冲突提示
+    if (!conflicts.empty()) {
+        std::cout << "Encountered a merge conflict." << '\n';
+    }
 }
 
 // main.cpp 的 checkCWD 依赖此方法, 请保留
