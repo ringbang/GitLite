@@ -7,8 +7,8 @@
   - **变量与接口**：不包含持久化成员变量，内部仅将各命令参数转发给 `Repository` 类的对应业务方法执行。
 - **`Repository`（`Repository.h` / `Repository.cpp`）**
   - **职责**：仓库顶层控制器，负责校验工作目录状态、管理 `.gitlite` 路径结构及调度所有 Gitlite 命令逻辑。
-  - **静态变量**：定义 `.gitlite` 根目录、`HEAD`、`index`、`commits/`、`blobs/`、`refs/heads/` 和 `refs/tags/` 的标准路径常量。
-  - **辅助接口**：包含 `getCurrentBranch()`、`getCurrentCommitId()` 用于解析当前 `HEAD` 状态；包含 `resolveRevision()` 统一处理标签名与 Commit ID 前缀的解析；包含 `checkoutSnapshot()` 用于复用快照同步逻辑。
+  - **静态变量**：定义 `.gitlite` 根目录、`HEAD`、`index`、`commits/`、`blobs/`、`refs/heads/`、`refs/tags/` 以及远程相关（`remotes/`、`refs/remotes/`）的标准路径常量。
+  - **辅助接口**：包含 `getCurrentBranch()`、`getCurrentCommitId()` 用于解析当前 `HEAD` 状态；包含 `resolveRevision()` 统一处理标签名与 Commit ID 前缀的解析；包含 `checkoutSnapshot()` 用于复用快照同步逻辑；包含 `getBranchRefPath()` 统一处理本地与远程分支的路径解析。
 - **`Commit`（`Commit.h` / `Commit.cpp`）**
   - **职责**：抽象单次提交的元数据与文件快照，提供日志格式化与对象持久化接口。
   - **实例变量**：`std::string message`（提交信息）、`std::time_t timestamp`（Unix 时间戳）、`std::vector<std::string> parents`（父提交 ID 列表，支持 0 至 2 个父提交）、`std::map<std::string, std::string> blobs`（文件名到 Blob SHA-1 的有序映射）及 `std::string id`（当前提交的 40 位 SHA-1 哈希值）。
@@ -51,11 +51,11 @@
   - **双参调用**：调用 `resolveRevision` 解析目标 `revision`，将其指向的提交 ID 写入新标签文件。
 
 ### 2.5 全局日志的图遍历与排序（`global-log`）
-- **可达性收集**：从 `refs/heads/` 和 `refs/tags/` 下读取所有起点 ID，借助 `std::queue` 进行广度优先搜索（BFS）遍历。使用 `std::set` 记录已访问节点，防止在合并分支构成的图中死循环，同时避免了深度过深时的递归栈溢出风险。
+- **可达性收集**：从 `refs/heads/`、`refs/tags/` 以及 `refs/remotes/`（通过 `<dirent.h>` 遍历子目录）读取所有起点 ID，借助 `std::queue` 进行广度优先搜索（BFS）遍历。使用 `std::set` 记录已访问节点，防止在合并分支构成的图中死循环，同时避免了深度过深时的递归栈溢出风险。
 - **确定性排序**：收集所有可达的 Commit 对象后，使用 `std::sort` 进行严格自定义排序：优先按 `timestamp` 降序排列（从新到旧）；若时间戳相同，则按 Commit ID 的字典序升序排列。
 
 ### 2.6 状态查询的三方交叉比对（`status`）
-- **Branches**：读取 `refs/heads/` 和 `HEAD`，按字典序输出所有分支，当前分支前加 `*`（星号不参与排序）。
+- **Branches**：读取 `refs/heads/`、`refs/remotes/`（通过 `<dirent.h>` 遍历目录）和 `HEAD`，将所有分支名合并并按字典序输出，当前分支前加 `*`（星号不参与排序）。
 - **Staged/Removed Files**：直接加载 `index` 映射和集合，利用 `std::map` 和 `std::set` 的自带字典序特性依次输出。
 - **Modifications Not Staged**：
   - 遍历 `StagingArea.added` 和 `HEAD.blobs` 的并集（使用 `std::map` 去重并保序）。
@@ -64,7 +64,7 @@
 - **Untracked Files**：遍历工作区普通文件，若未被 `HEAD` 跟踪、未暂存待添加、且未被 `IgnoreMatcher` 忽略，则输出；特例处理“被暂存删除但在工作区重建的同名文件”，强制视为未跟踪。
 
 ### 2.7 分支管理与安全性检查（`branch` / `rm-branch`）
-- **名字校验**：标签与分支名共享相同的合法性校验规则。
+- **名字校验与命名空间互斥**：标签、分支、远程共享合法性校验。`branch` 与 `add-remote` 在创建时会互相检查对方的命名空间，防止同名冲突。
 - **检查顺序**：`rm-branch` 严格按照“存在性检查 -> 当前分支保护检查”的顺序执行，防止因删除当前分支导致 `HEAD` 悬空。
 - **引用删除**：物理删除 `refs/heads/<name>`，不涉及工作区及对象库的修改。
 
@@ -76,11 +76,12 @@
 
 ### 2.9 版本检出与重置（`checkout` 与 `reset`）
 - **文件级检出（`checkout -- [file]` / `checkout [revision] -- [file]`）**：仅从当前或目标提交中读取特定文件的 Blob 并覆写工作区，不修改分支指针、HEAD 或暂存区。
-- **分支切换（`checkout [branch]`）**：验证分支存在且非当前分支后，调用 `checkoutSnapshot` 同步工作区与暂存区，成功后将新的分支名写入 `HEAD`。
-- **版本重置（`reset [revision]`）**：解析目标提交后，调用 `checkoutSnapshot` 同步工作区，但不切换分支，而是将当前分支所指向的文件引用（`refs/heads/...`）覆写为目标提交 ID。
+- **分支切换（`checkout [branch]`）**：通过 `getBranchRefPath` 验证分支存在且非当前分支后，调用 `checkoutSnapshot` 同步工作区与暂存区，成功后将新的分支名（支持带 `/` 的远程跟踪分支名）写入 `HEAD`。
+- **版本重置（`reset [revision]`）**：解析目标提交后，调用 `checkoutSnapshot` 同步工作区，但不切换分支，而是将当前分支所指向的文件引用覆写为目标提交 ID。
 
 ### 2.10 分支合并（`merge`）与分割点查找
 
+- **前置检查**：严格按优先级检查“暂存区未提交修改 -> 分支存在性 -> 禁止自身合并”。
 - **分割点（Split Point）算法**：先从当前分支头提交出发，沿所有父引用遍历收集全部祖先集合（含自身）；随后从给定分支头提交出发执行广度优先搜索（BFS，按父引用存储顺序入队），首个命中当前分支祖先集合的提交即为分割点。
 - **特殊历史处理**：若分割点为给定分支头，输出 `Given branch is an ancestor of the current branch.` 直接结束；若分割点为当前分支头，则调用 `checkoutSnapshot` 执行快进合并并移动当前分支指针。
 - **普通合并的三方比对**：取出 `base`（分割点）、`ours`（当前分支）和 `theirs`（给定分支）的快照并集。对每个文件，比较其在这三个提交中的 Blob ID：
@@ -89,10 +90,17 @@
   - 若 `ours_id == base_id` 且 `theirs_id` 为空，将该文件加入待删除列表。
   - 其余情况（双方修改不一致、一方修改另一方删除等）均视为冲突。
 - **未跟踪文件预检与执行**：严格只对待覆写、待删除和冲突列表中的路径进行未跟踪文件冲突预检。随后执行工作区的文件删除、覆写。
-- **冲突文件生成**：对于冲突文件，分别读取两侧内容（缺失视为空），若非空且末尾无 `\n` 则补齐。按 `<<<<<<< HEAD`、`=======`、`>>>>>>>` 格式拼接写入工作区并自动暂存。
-- **合并提交生成**：无论是否有冲突，均生成一个包含当前分支头与给定分支头作为双父引用的新提交。更新当前分支指针并清空暂存区，若有冲突则额外输出 `Encountered a merge conflict.`。
+- **冲突文件生成与提交**：对于冲突文件，补齐换行符后按 `<<<<<<< HEAD`、`=======`、`>>>>>>>` 格式拼接写入工作区并自动暂存。最后生成包含当前分支头与给定分支头作为双父引用的新提交。更新当前分支指针并清空暂存区，若有冲突则输出 `Encountered a merge conflict.`。
 
-### 2.11 差异对比与展示（`diff` 与 `show`）
+### 2.11 远程管理（`remote`、`push`、`fetch`、`pull`）
+- **命名空间互斥**：`add-remote` 时检查本地分支目录，`branch` 时检查远程目录，保证普通本地分支名与远程名共享顶层命名空间。
+- **路径解析（`getBranchRefPath`）**：根据分支名是否包含 `/`（如 `R1/master`）判断是本地分支还是远程跟踪分支，分别前往 `refs/heads/` 或 `refs/remotes/` 读取或写入 ID。
+- **通信机制（`push` / `fetch`）**：
+  - `push`：检查远程分支头是否为本地分支头的祖先（防止覆盖别人的提交），将本地缺失的 commit 和 blob 物理复制到远程仓库目录，更新远程分支指针。
+  - `fetch`：将远程仓库的 commit 和 blob 复制到本地，在 `refs/remotes/<remote>/<branch>` 下更新远程跟踪分支指针，不修改工作区与暂存区。
+- **拉取合并（`pull`）**：先执行 `fetch`，再进行暂存区检查，最后复用核心的 `mergeWithCommit` 函数，将 `refs/remotes/...` 下的分支合入当前分支。
+
+### 2.12 差异对比与展示（`diff` 与 `show`）
 - **底层算法（`DiffEngine`）**：
   - **切分与换行检测**：按 `\n` 逐字符切分文本，保留 `\r` 为普通字符。对每一行记录 `has_newline` 标志，若末尾无换行符，则在输出该行后追加 `\ No newline at end of file`。
   - **唯一性 LCS 动态规划**：构建二维 DP 表求最长公共子序列。在回溯生成编辑序列时，遇到平局（删除和插入得到的 LCS 长度相同时），严格优先选择插入（在倒序数组中优先压入 `+`），反转后表现为优先删除旧行，保证输出唯一性。
@@ -108,20 +116,21 @@
 
 所有版本控制元数据均持久化保存在工作目录的 `.gitlite/` 子目录下，具体结构如下：
 
-Plaintext
-
 ```
 .gitlite/
-├── HEAD                      # 文本文件：保存当前活跃分支名（如 "master"）
-├── index                     # 序列化文件：保存 StagingArea 的 added 和 removed 状态
-├── commits/                  # 目录：存放所有 Commit 对象，文件名为 40 位 SHA-1 ID
-├── blobs/                    # 目录：存放所有 Blob 对象，文件名为 40 位 SHA-1 ID
+├── HEAD # 文本文件：保存当前活跃分支名（如 "master" 或 "R1/master"）
+├── index # 序列化文件：保存 StagingArea 的 added 和 removed 状态
+├── commits/ # 目录：存放所有 Commit 对象，文件名为 40 位 SHA-1 ID
+├── blobs/ # 目录：存放所有 Blob 对象，文件名为 40 位 SHA-1 ID
+├── remotes/ # 目录：每个文件以远程名命名，内容为远程 .gitlite 的路径
 └── refs/
-    ├── heads/                # 目录：每个文件以分支名命名，内容为该分支头提交的 40 位 ID
-    └── tags/                 # 目录：每个文件以标签名命名，内容为该标签指向的 40 位提交 ID
+├── heads/ # 目录：存放本地分支
+├── tags/ # 目录：存放标签
+└── remotes/ # 目录：存放远程跟踪分支（如 R1/master）
 ```
 
 - **分目录存储优势**：将 `commits/` 与 `blobs/` 物理隔离，使 `resolveRevision` 在执行提交 ID 前缀匹配时只需扫描 `commits/` 目录，避免与 Blob 对象哈希发生混淆，同时利用 `Utils::plainFilenamesIn` 可直接获取字典序排列的引用列表。
+- **目录兼容处理**：由于 `Utils::plainFilenamesIn` 仅返回普通文件，在读取 `refs/remotes/` 时需要借助 `<dirent.h>` 库，手动识别并深入子目录（如 `R1`）读取具体分支。
 
 ### 3.2 序列化与反序列化机制
 
