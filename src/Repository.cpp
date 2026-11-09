@@ -699,19 +699,14 @@ void Repository::reset(const std::string& rev) {
 
 // 用于 pull 的带 Commit 的私有 merge 函数
 void Repository::mergeWithCommit(const std::string& target_id, const std::string& target_name) {
-    // 1. 前置检查：暂存区不能有未提交的修改
     StagingArea staging;
     staging.load(INDEX_FILE);
-    if (!staging.isEmpty()) {
-        Utils::exitWithMessage("You have uncommitted changes.");
-    }
-
     std::string head_id = getCurrentCommitId();
     const auto& head_ancestors = getAncestors(head_id);
     std::string branch_id = target_id; // 直接使用传入的 target_id
     std::string split_id = "";
 
-    // 2. BFS 搜索最近分割点
+    // 1. BFS 搜索最近分割点
     std::set<std::string> visited;
     std::queue<std::string> q;
     q.push(branch_id);
@@ -737,7 +732,7 @@ void Repository::mergeWithCommit(const std::string& target_id, const std::string
         Utils::exitWithMessage("No common ancestor found.");
     }
 
-    // 3. 特殊关系处理
+    // 2. 特殊关系处理
     // (1) 给定分支是当前分支的祖先
     if (split_id == branch_id) {
         Utils::exitWithMessage("Given branch is an ancestor of the current branch.");
@@ -755,7 +750,7 @@ void Repository::mergeWithCommit(const std::string& target_id, const std::string
         return;
     }
 
-    // 4. 计算普通合并结果
+    // 3. 计算普通合并结果
     // (1) 预备工作: 加载 3 方 Commit 对象, 获取其追踪的文件名并集,
     // 为合并设立 3 个区: 待覆写的 to_write, 待删除的 to_remove 和
     // 有冲突的 conflicts 
@@ -843,7 +838,7 @@ void Repository::mergeWithCommit(const std::string& target_id, const std::string
         }
     }
 
-    // 5. 执行普通合并: 修改工作区与暂存区
+    // 4. 执行普通合并: 修改工作区与暂存区
     // (1) 删除
     for (const auto& fn: to_remove) {
         if (Utils::isFile(fn)) {
@@ -892,7 +887,7 @@ void Repository::mergeWithCommit(const std::string& target_id, const std::string
     // 保存暂存区
     staging.save(INDEX_FILE);
 
-    // 6. 生成合并提交
+    // 5. 生成合并提交
     std::map<std::string, std::string> new_blobs = ours_commit.getBlobs();
     for (const auto& [fn, id]: staging.getAddedMap()) {
         new_blobs[fn] = id;
@@ -914,7 +909,7 @@ void Repository::mergeWithCommit(const std::string& target_id, const std::string
     staging.clear();
     staging.save(INDEX_FILE);
 
-    // 7. 输出冲突提示
+    // 6. 输出冲突提示
     if (!conflicts.empty()) {
         std::cout << "Encountered a merge conflict." << '\n';
     }
@@ -923,18 +918,25 @@ void Repository::mergeWithCommit(const std::string& target_id, const std::string
 
 // merge [branch name]
 void Repository::merge(const std::string& branch) {
-    // 1. 检查分支存在性
+    // 1. 前置失败检查: 暂存区有未提交的修改 (必须最先检查)
+    StagingArea staging;
+    staging.load(INDEX_FILE);
+    if (!staging.isEmpty()) {
+        Utils::exitWithMessage("You have uncommitted changes.");
+    }
+
+    // 2. 检查分支存在性
     std::string branch_path = Utils::join(HEADS_DIR, branch);
     if (!isValidName(branch) || !Utils::isFile(branch_path)) {
         Utils::exitWithMessage("A branch with that name does not exist.");
     }
 
-    // 2. 不能将分支与自身合并
+    // 3. 不能将分支与自身合并
     if (branch == cleanString(getCurrentBranch())) {
         Utils::exitWithMessage("Cannot merge a branch with itself.");
     }
 
-    // 3. 获取 ID 并调用核心函数
+    // 4. 获取 ID 并调用核心函数
     std::string target_id = cleanString(Utils::readContentsAsString(branch_path));
     mergeWithCommit(target_id, branch);
 }
@@ -1072,14 +1074,21 @@ void Repository::pull(const std::string& remote, const std::string& branch) {
     // 1. 先 fetch (fetch 内部已经包含了所有关于远程目录和分支的失败检查)
     fetch(remote, branch);
 
-    // 2. 获取 fetch 下来的远程跟踪分支 ID
+    // 2. 检查暂存区
+    StagingArea staging;
+    staging.load(INDEX_FILE);
+    if (!staging.isEmpty()) {
+        Utils::exitWithMessage("You have uncommitted changes.");
+    }
+
+    // 3. 获取 fetch 下来的远程跟踪分支 ID
     std::string remote_branch_path = Utils::join(REMOTE_REFS_DIR, remote, branch);
     std::string target_id = cleanString(Utils::readContentsAsString(remote_branch_path));
     
-    // 3. 构造一个用来展示在 commit message 里的名字
+    // 4. 构造一个用来展示在 commit message 里的名字
     std::string target_name = remote + "/" + branch;
 
-    // 4. 复用 merge 逻辑
+    // 5. 复用 merge 逻辑
     mergeWithCommit(target_id, target_name);
 }
 
