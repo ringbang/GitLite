@@ -117,24 +117,34 @@ void SomeObj::merge(const std::string& b) {
 
 // ---------------- Bonus-1: add-remote / rm-remote / push / fetch / pull ----------------
 
-void SomeObj::addRemote(const std::string&, const std::string&) {
+void SomeObj::addRemote(const std::string& n, const std::string& p) {
     // TODO: 保存远程仓库地址
+    Repository repo;
+    repo.addRemote(n, p);
 }
 
-void SomeObj::rmRemote(const std::string&) {
+void SomeObj::rmRemote(const std::string& n) {
     // TODO: 删除远程仓库信息
+    Repository repo;
+    repo.rmRemote(n);
 }
 
-void SomeObj::push(const std::string&, const std::string&) {
+void SomeObj::push(const std::string& n, const std::string& b) {
     // TODO: 将当前分支的提交推送到远程分支
+    Repository repo;
+    repo.push(n, b);
 }
 
-void SomeObj::fetch(const std::string&, const std::string&) {
-    // TODO: 将远程分支的提交与 blob 复制到本地
+void SomeObj::fetch(const std::string& n, const std::string& b) {
+    // TODO: 将远程分支的提交与 Blob 复制到本地
+    Repository repo;
+    repo.fetch(n, b);
 }
 
-void SomeObj::pull(const std::string&, const std::string&) {
+void SomeObj::pull(const std::string& n, const std::string& b) {
     // TODO: fetch 后将取回的分支合并到当前分支
+    Repository repo;
+    repo.pull(n, b);
 }
 
 // ---------------- Bonus-2: diff / show ----------------

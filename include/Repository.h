@@ -21,6 +21,8 @@ public:
     static const std::string REFS_DIR;
     static const std::string HEADS_DIR;
     static const std::string TAGS_DIR;
+    static const std::string REMOTES_DIR;
+    static const std::string REMOTE_REFS_DIR;
 
     // 元数据目录名, 即 ".gitlite"
     static std::string getGitliteDir();
@@ -94,6 +96,21 @@ public:
     // show [revision]
     void show(const std::string& rev);
 
+    // add-remote [remote name] [path]
+    void addRemote(const std::string& name, const std::string& path);
+
+    // rm-remote [remote name]
+    void rmRemote(const std::string& name);
+
+    // push [remote name] [remote branch name]
+    void push(const std::string& remote, const std::string& branch);
+
+    // fetch [remote name] [remote branch name]
+    void fetch(const std::string& remote, const std::string& branch);
+
+    // pull [remote name] [remote branch name]
+    void pull(const std::string& remote, const std::string& branch);  
+
 private:
     // 判断 tag 的名字是否合法的私有辅助函数
     bool isValidName(const std::string& tag);
@@ -116,6 +133,15 @@ private:
 
     // 用于 merge 的收集某提交的所有父提交的私有辅助函数
     std::set<std::string> getAncestors(const std::string& start_id);
+
+    // 复制 Blob 和 Commit 的私有辅助函数
+    void copyObjects(const std::string& from_dir, const std::string& to_dir);
+
+    // 用于 pull 的带 Commit 的私有 merge 函数
+    void mergeWithCommit(const std::string& target_id, const std::string& target_name);
+
+    // 获取分支引用的完整路径 (兼容本地分支和远程跟踪分支)
+    std::string getBranchRefPath(const std::string& name);
 
     // 用于 diff 和 show 的从 Commit 读取文件内容的私有辅助函数
     std::optional<std::string> readFileFromCommit(const Commit& commit, const std::string& filename);

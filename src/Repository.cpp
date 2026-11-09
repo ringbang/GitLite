@@ -14,6 +14,7 @@
 #include <utility>
 #include <set>
 #include <optional>
+#include <dirent.h>
 
 // 定义标准路径
 const std::string Repository::GITLITE_DIR = ".gitlite";
@@ -24,6 +25,8 @@ const std::string Repository::BLOBS_DIR = ".gitlite/blobs";
 const std::string Repository::REFS_DIR = ".gitlite/refs";
 const std::string Repository::HEADS_DIR = ".gitlite/refs/heads";
 const std::string Repository::TAGS_DIR = ".gitlite/refs/tags";
+const std::string Repository::REMOTES_DIR = ".gitlite/remotes";
+const std::string Repository::REMOTE_REFS_DIR = ".gitlite/refs/remotes";
 
 // 初始化仓库
 void Repository::init() {
@@ -37,6 +40,8 @@ void Repository::init() {
     Utils::createDirectories(BLOBS_DIR);
     Utils::createDirectories(HEADS_DIR);
     Utils::createDirectories(TAGS_DIR);
+    Utils::createDirectories(REMOTES_DIR);
+    Utils::createDirectories(REMOTE_REFS_DIR);
 
     // 创建并保存初始提交
     Commit initial("initial commit", 0, {}, {});
@@ -56,9 +61,10 @@ std::string Repository::getCurrentBranch() {
 
 // 获取当前 HEAD 指向的 commit ID
 std::string Repository::getCurrentCommitId() {
-    std::string branch = getCurrentBranch();
-    std::string branch_path = Utils::join(HEADS_DIR, branch);
-    return Utils::readContentsAsString(branch_path);
+    // 兼容远程
+    std::string branch = cleanString(getCurrentBranch());
+    std::string branch_path = getBranchRefPath(branch);
+    return cleanString(Utils::readContentsAsString(branch_path));
 }
 
 // 获取当前 Commit 对象
@@ -216,7 +222,7 @@ void Repository::commit(const std::string& message) {
 
     // 移动当前分支的指针, 即更新当前分支的最新提交
     std::string branch = getCurrentBranch();
-    std::string branch_path = Utils::join(HEADS_DIR, branch);
+    std::string branch_path = getBranchRefPath(branch); 
     Utils::writeContents(branch_path, newCommit.getId());
 
     // 刷新状态
@@ -376,18 +382,36 @@ void Repository::tag(const std::string& name, const std::string& rev) {
 
 // global-log
 void Repository::globalLog() {
-    // 1. 找到所有的起点提交, 包括每个 branch 和 tag
+    // 1. 找到所有的起点提交, 包括每个 branch, tag 和 remote
     std::vector<std::string> start_ids;
     auto branches = Utils::plainFilenamesIn(HEADS_DIR);
     for (const auto& b: branches) {
         std::string id = Utils::readContentsAsString(Utils::join(HEADS_DIR, b));
-        start_ids.push_back(id);
+        start_ids.push_back(cleanString(id));
     }
 
     auto tags = Utils::plainFilenamesIn(TAGS_DIR);
     for (const auto& t: tags) {
         std::string id = Utils::readContentsAsString(Utils::join(TAGS_DIR, t));
-        start_ids.push_back(id);
+        start_ids.push_back(cleanString(id));
+    }
+
+    DIR* dir = opendir(REMOTE_REFS_DIR.c_str());
+    if (dir) {
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != nullptr) {
+            std::string r = entry->d_name;
+            // 过滤掉 "." 和 ".." 以及普通文件
+            if (r == "." || r == ".." || !Utils::isDirectory(Utils::join(REMOTE_REFS_DIR, r))) {
+                continue;
+            }
+            auto remote_branches = Utils::plainFilenamesIn(Utils::join(REMOTE_REFS_DIR, r));
+            for (const auto& b : remote_branches) {
+                std::string id = Utils::readContentsAsString(Utils::join(REMOTE_REFS_DIR, r, b));
+                start_ids.push_back(cleanString(id));
+            }
+        }
+        closedir(dir);
     }
 
     // 2. 沿每个提交的所有父引用遍历 (BFS)
@@ -441,19 +465,42 @@ void Repository::globalLog() {
 void Repository::status() {
     // 1. Branches
     // 加载当前已有的所有 branches 和目前活跃的 branch
-    auto branches = Utils::plainFilenamesIn(HEADS_DIR);
-    std::string curr_branch = Utils::readContentsAsString(HEAD_FILE);
+    std::vector<std::string> all_branches;
+    
+    auto local_branches = Utils::plainFilenamesIn(HEADS_DIR);
+    for (const auto& b: local_branches) {
+        all_branches.push_back(b);
+    }
+    
+    DIR* dir = opendir(REMOTE_REFS_DIR.c_str());
+    if (dir) {
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != nullptr) {
+            std::string r = entry->d_name;
+            if (r == "." || r == ".." || !Utils::isDirectory(Utils::join(REMOTE_REFS_DIR, r))) {
+                continue;
+            }
+            auto remote_branches = Utils::plainFilenamesIn(Utils::join(REMOTE_REFS_DIR, r));
+            for (const auto& b : remote_branches) {
+                all_branches.push_back(r + "/" + b);
+            }
+        }
+        closedir(dir);
+    }
 
-    // 将所有 branches 按规则输出 (自带字典序, 当前 branch 是特例)
+    // 字典序排序
+    std::sort(all_branches.begin(), all_branches.end());
+    std::string curr_branch = cleanString(Utils::readContentsAsString(HEAD_FILE));
+
+    // 将所有 branches 按规则输出
     std::cout << "=== Branches ===" << '\n';
-    for (const auto& b: branches) {
+    for (const auto& b: all_branches) {
         if (b == curr_branch) {
             std::cout << "*";
         }
         std::cout << b << '\n';
     }
     std::cout << '\n';
-    branches.clear();
 
     // 2. Staged Files & Removed Files
     // 加载当前暂存区, 按字典序排列后输出 added 和 removed
@@ -549,9 +596,10 @@ void Repository::branch(const std::string& name) {
         Utils::exitWithMessage("Incorrect operands.");
     }
 
-    // 再检查是否存在同名 branch, 若存在也退出
+    // 再检查是否存在同名 branch 或 remote, 若存在也退出
     std::string branch_path = Utils::join(HEADS_DIR, name);
-    if (Utils::isFile(branch_path)) {
+    std::string remote_path = Utils::join(REMOTES_DIR, name);
+    if (Utils::isFile(branch_path) || Utils::isFile(remote_path)) {
         Utils::exitWithMessage("A branch with that name already exists.");
     }
 
@@ -616,11 +664,8 @@ void Repository::checkoutFileInCommit(const std::string& rev, const std::string&
 
 // checkout [branch name]
 void Repository::checkoutBranch(const std::string& name) {
-    // 不存在同名分支
-    if (!isValidName(name)) {
-        Utils::exitWithMessage("No such branch exists.");
-    }
-    std::string branch_path = Utils::join(HEADS_DIR, name);
+    // 兼容远程分支名
+    std::string branch_path = getBranchRefPath(name);
     if (!Utils::isFile(branch_path)) {
         Utils::exitWithMessage("No such branch exists.");
     }
@@ -648,39 +693,25 @@ void Repository::reset(const std::string& rev) {
 
     // 移动当前分支指针
     std::string branch = cleanString(getCurrentBranch());
-    std::string branch_path = Utils::join(HEADS_DIR, branch);
+    std::string branch_path = getBranchRefPath(branch);
     Utils::writeContents(branch_path, target_id);
 }
 
-// merge [branch name]
-void Repository::merge(const std::string& branch) {
-    // 1. 前置失败检查
-    // (1) 暂存区有未提交的修改
+// 用于 pull 的带 Commit 的私有 merge 函数
+void Repository::mergeWithCommit(const std::string& target_id, const std::string& target_name) {
+    // 1. 前置检查：暂存区不能有未提交的修改
     StagingArea staging;
     staging.load(INDEX_FILE);
     if (!staging.isEmpty()) {
         Utils::exitWithMessage("You have uncommitted changes.");
     }
 
-    // (2) 不存在名为给定名称的分支
-    std::string branch_path = Utils::join(HEADS_DIR, branch);
-    if (!isValidName(branch) || !Utils::isFile(branch_path)) {
-        Utils::exitWithMessage("A branch with that name does not exist.");
-    }
-
-    // (3) 不能将分支与自身合并
-    if (branch == cleanString(getCurrentBranch())) {
-        Utils::exitWithMessage("Cannot merge a branch with itself.");
-    }
-
-    // 2. BFS 搜索最近分割点
-    // 利用辅助函数 getAncestors()
     std::string head_id = getCurrentCommitId();
     const auto& head_ancestors = getAncestors(head_id);
-    std::string branch_id = cleanString(Utils::readContentsAsString(branch_path));
+    std::string branch_id = target_id; // 直接使用传入的 target_id
     std::string split_id = "";
 
-    // 原理与 getAncestors() 相同, 但多出一步当前 id 是否在 head_ancestors 中的检测
+    // 2. BFS 搜索最近分割点
     std::set<std::string> visited;
     std::queue<std::string> q;
     q.push(branch_id);
@@ -872,7 +903,7 @@ void Repository::merge(const std::string& branch) {
 
     std::time_t now = std::time(nullptr);
     std::vector<std::string> pars = {head_id, branch_id};
-    std::string msg = "Merged " + branch + " into " + cleanString(getCurrentBranch()) + ".";
+    std::string msg = "Merged " + target_name + " into " + cleanString(getCurrentBranch()) + ".";
     Commit merge_commit(msg, now, pars, new_blobs);
     merge_commit.save(Utils::join(COMMITS_DIR, merge_commit.getId()));
 
@@ -887,6 +918,169 @@ void Repository::merge(const std::string& branch) {
     if (!conflicts.empty()) {
         std::cout << "Encountered a merge conflict." << '\n';
     }
+}
+
+
+// merge [branch name]
+void Repository::merge(const std::string& branch) {
+    // 1. 检查分支存在性
+    std::string branch_path = Utils::join(HEADS_DIR, branch);
+    if (!isValidName(branch) || !Utils::isFile(branch_path)) {
+        Utils::exitWithMessage("A branch with that name does not exist.");
+    }
+
+    // 2. 不能将分支与自身合并
+    if (branch == cleanString(getCurrentBranch())) {
+        Utils::exitWithMessage("Cannot merge a branch with itself.");
+    }
+
+    // 3. 获取 ID 并调用核心函数
+    std::string target_id = cleanString(Utils::readContentsAsString(branch_path));
+    mergeWithCommit(target_id, branch);
+}
+
+// 复制 Blob 和 Commit 的私有辅助函数
+void Repository::copyObjects(const std::string& from_dir, const std::string& to_dir) {
+    auto files = Utils::plainFilenamesIn(from_dir);
+    for (const auto& f : files) {
+        std::string target = Utils::join(to_dir, f);
+        if (!Utils::isFile(target)) {
+            // 不要覆盖远程已有对象
+            std::string content = Utils::readContentsAsString(Utils::join(from_dir, f));
+            Utils::writeContents(target, content);
+        }
+    }
+}
+
+// 获取分支引用的完整路径 (兼容本地分支和远程跟踪分支)
+std::string Repository::getBranchRefPath(const std::string& name) {
+    // 如果包含 '/', 说明是远程分支
+    if (name.find('/') != std::string::npos) {
+        size_t pos = name.find('/');
+        std::string r = name.substr(0, pos);
+        std::string b = name.substr(pos + 1);
+        return Utils::join(REMOTE_REFS_DIR, r, b);
+    }
+    // 否则是本地分支
+    return Utils::join(HEADS_DIR, name);
+}
+
+// add-remote [remote name] [path]
+void Repository::addRemote(const std::string& name, const std::string& path) {
+    // 校验名字合法性
+    if (!isValidName(name)) {
+        Utils::exitWithMessage("Incorrect operands.");
+    }
+
+    // 检查是否冲突: HEADS_DIR 下有无同名分支, REMOTES_DIR 下有无同名远程
+    if (Utils::isFile(Utils::join(HEADS_DIR, name)) || Utils::isFile(Utils::join(REMOTES_DIR, name))) {
+        Utils::exitWithMessage("A remote with that name already exists.");
+    }
+
+    // 不检查路径是否存在, 直接保存
+    Utils::writeContents(Utils::join(REMOTES_DIR, name), path);
+}
+
+// rm-remote [remote name]
+void Repository::rmRemote(const std::string& name) {
+    // 校验名字合法性
+    if (!isValidName(name)) {
+        Utils::exitWithMessage("Incorrect operands.");
+    }
+
+    // 检查 REMOTES_DIR 下有无同名远程, 若有则删除, 若无则报错退出
+    if (!Utils::isFile(Utils::join(REMOTES_DIR, name))) {
+        Utils::exitWithMessage("A remote with that name does not exist.");
+    }
+    else {
+        std::remove(Utils::join(REMOTES_DIR, name).c_str());
+    }
+}
+
+// push [remote name] [remote branch name]
+void Repository::push(const std::string& remote, const std::string& branch) {
+    // 检查远程名和分支名是否合法
+    if (!isValidName(remote) || !isValidName(branch)) {
+        Utils::exitWithMessage("Incorrect operands.");
+    }
+
+    // 检查 REMOTES_DIR 下有没有该远程, 如果没有报错退出
+    if (!Utils::isFile(Utils::join(REMOTES_DIR, remote))) {
+        Utils::exitWithMessage("Remote directory not found.");
+    }
+
+    // 检查 remote 是否真的是一个 GitLite 仓库, 若不是也报错退出
+    std::string remote_path = cleanString(Utils::readContentsAsString(Utils::join(REMOTES_DIR, remote)));
+    if (!Utils::isDirectory(remote_path) || !Utils::isFile(Utils::join(remote_path, "HEAD"))) {
+        Utils::exitWithMessage("Remote directory not found.");
+    }
+
+    // 检查历史包含关系 (仅当远程分支已存在时)
+    std::string remote_branch_path = Utils::join(remote_path, "refs/heads", branch);
+    std::string local_head_id = cleanString(getCurrentCommitId());
+    if (Utils::isFile(remote_branch_path)) {
+        std::string remote_head_id = cleanString(Utils::readContentsAsString(remote_branch_path));
+        // 如果远程头不是本地头的祖先, 说明本地落后了, 报错退出
+        if (!getAncestors(local_head_id).count(remote_head_id)) {
+            Utils::exitWithMessage("Please pull down remote changes before pushing.");
+        }
+    }
+
+    // 将本地的 Commit 和 Blob 复制到目标远程仓库
+    copyObjects(COMMITS_DIR, Utils::join(remote_path, "commits"));
+    copyObjects(BLOBS_DIR, Utils::join(remote_path, "blobs"));
+
+    // 更新远程分支头
+    Utils::writeContents(remote_branch_path, local_head_id);
+}
+
+// fetch [remote name] [remote branch name]
+void Repository::fetch(const std::string& remote, const std::string& branch) {
+    // 检查远程名和分支名是否合法
+    if (!isValidName(remote) || !isValidName(branch)) {
+        Utils::exitWithMessage("Incorrect operands.");
+    }
+
+    // 检查 REMOTES_DIR 下有没有该远程, 如果没有报错退出
+    if (!Utils::isFile(Utils::join(REMOTES_DIR, remote))) {
+        Utils::exitWithMessage("Remote directory not found.");
+    }
+
+    // 检查 remote 是否真的是一个 GitLite 仓库, 若不是也报错退出
+    std::string remote_path = cleanString(Utils::readContentsAsString(Utils::join(REMOTES_DIR, remote)));
+    if (!Utils::isDirectory(remote_path) || !Utils::isFile(Utils::join(remote_path, "HEAD"))) {
+        Utils::exitWithMessage("Remote directory not found.");
+    }
+
+    // 检查 remote 是否有给定 branch, 若否报错退出
+    std::string remote_branch_path = Utils::join(remote_path, "refs/heads", branch);
+    if (!Utils::isFile(remote_branch_path)) {
+        Utils::exitWithMessage("That remote does not have that branch.");
+    }
+
+    // 将目标远程仓库的 Commit 和 Blob 复制到本地
+    copyObjects(Utils::join(remote_path, "commits"), COMMITS_DIR);
+    copyObjects(Utils::join(remote_path, "blobs"), BLOBS_DIR);
+
+    // 更新本地远程分支头 ID
+    std::string remote_head_id = cleanString(Utils::readContentsAsString(remote_branch_path));
+    Utils::writeContents(Utils::join(REMOTE_REFS_DIR, remote, branch), remote_head_id);
+}
+
+// pull [remote name] [remote branch name]
+void Repository::pull(const std::string& remote, const std::string& branch) {
+    // 1. 先 fetch (fetch 内部已经包含了所有关于远程目录和分支的失败检查)
+    fetch(remote, branch);
+
+    // 2. 获取 fetch 下来的远程跟踪分支 ID
+    std::string remote_branch_path = Utils::join(REMOTE_REFS_DIR, remote, branch);
+    std::string target_id = cleanString(Utils::readContentsAsString(remote_branch_path));
+    
+    // 3. 构造一个用来展示在 commit message 里的名字
+    std::string target_name = remote + "/" + branch;
+
+    // 4. 复用 merge 逻辑
+    mergeWithCommit(target_id, target_name);
 }
 
 // 用于 diff 和 show 的从 Commit 读取文件内容的私有辅助函数
